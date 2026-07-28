@@ -1,0 +1,140 @@
+{
+  "pipeline": "memory",
+  "version": "v1",
+  "final_choice": "xgboost",
+  "ensemble_rule": {
+    "margin_required": 0.005,
+    "best_single_model": "xgboost",
+    "best_single_val_auc": 0.999999650589412,
+    "ensemble_val_auc": 0.999999592354314,
+    "gain": -5.823509796609727e-08
+  },
+  "threshold": 0.2336726188659668,
+  "validation_metrics": {
+    "lightgbm": {
+      "roc_auc": 0.999999010003334,
+      "pr_auc": 0.9999989953662691,
+      "fpr": 0.0,
+      "fnr": 0.002188183807439825,
+      "confusion_matrix": [
+        [
+          4175,
+          0
+        ],
+        [
+          9,
+          4104
+        ]
+      ],
+      "threshold_used": 0.5
+    },
+    "xgboost": {
+      "roc_auc": 0.999999650589412,
+      "pr_auc": 0.999999645580854,
+      "fpr": 0.0,
+      "fnr": 0.0029175784099197666,
+      "confusion_matrix": [
+        [
+          4175,
+          0
+        ],
+        [
+          12,
+          4101
+        ]
+      ],
+      "threshold_used": 0.5
+    },
+    "ensemble": {
+      "roc_auc": 0.999999592354314,
+      "pr_auc": 0.9999995864104712,
+      "fpr": 0.0,
+      "fnr": 0.002188183807439825,
+      "confusion_matrix": [
+        [
+          4175,
+          0
+        ],
+        [
+          9,
+          4104
+        ]
+      ],
+      "threshold_used": 0.5
+    }
+  },
+  "test_metrics": {
+    "roc_auc": 1.0,
+    "pr_auc": 1.0,
+    "fpr": 0.0,
+    "fnr": 0.0,
+    "confusion_matrix": [
+      [
+        4174,
+        0
+      ],
+      [
+        0,
+        4144
+      ]
+    ],
+    "threshold_used": 0.2336726188659668
+  },
+  "split": {
+    "train_rows": 41456,
+    "val_rows": 8288,
+    "test_rows": 8318,
+    "method": "StratifiedGroupKFold, grouped by source sample (Category minus -N.raw suffix)"
+  },
+  "library_versions": {
+    "lightgbm": "4.6.0",
+    "xgboost": "3.2.0",
+    "sklearn": "1.6.1"
+  },
+  "random_state": 42,
+  "dataset_characteristics": {
+    "note": "CIC-MalMem-2022 shows near-saturated separability: 21/55 features individually achieve univariate ROC-AUC > 0.95, 7/55 exceed 0.99 (see univariate_auc analysis). This is a documented characteristic of this dataset in prior published work, likely reflecting systematic differences in VM/capture conditions between benign and malicious captures rather than narrow behavioral signal alone. Reported model performance should be read in that context.",
+    "top_univariate_features": [
+      {
+        "feature": "dlllist.avg_dlls_per_proc",
+        "univariate_auc": 0.9975479001670354
+      },
+      {
+        "feature": "svcscan.nservices",
+        "univariate_auc": 0.9967307480835879
+      },
+      {
+        "feature": "svcscan.shared_process_services",
+        "univariate_auc": 0.9953019050501819
+      },
+      {
+        "feature": "svcscan.kernel_drivers",
+        "univariate_auc": 0.9949401604093724
+      },
+      {
+        "feature": "handles.avg_handles_per_proc",
+        "univariate_auc": 0.9934714408570567
+      },
+      {
+        "feature": "pslist.avg_handlers",
+        "univariate_auc": 0.9928590213669151
+      },
+      {
+        "feature": "handles.nsection",
+        "univariate_auc": 0.9903694633960324
+      },
+      {
+        "feature": "handles.nthread",
+        "univariate_auc": 0.9895566616052444
+      },
+      {
+        "feature": "handles.nevent",
+        "univariate_auc": 0.9895299895862048
+      },
+      {
+        "feature": "handles.nmutant",
+        "univariate_auc": 0.9886952652531944
+      }
+    ]
+  }
+}

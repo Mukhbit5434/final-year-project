@@ -1,0 +1,151 @@
+{
+  "pipeline": "disk",
+  "version": "v1",
+  "final_choice": "lightgbm",
+  "ensemble_rule": {
+    "margin_required": 0.005,
+    "best_single_model": "lightgbm",
+    "best_single_val_auc": 0.9976498064197531,
+    "ensemble_val_auc": 0.99739743654321,
+    "gain": -0.0002523698765430904
+  },
+  "threshold": 0.5010602922493019,
+  "feature_selection": {
+    "full_feature_count": 2381,
+    "selected_feature_count": 150,
+    "ablation_results": [
+      {
+        "k": 50,
+        "val_auc": 0.9934849920987654
+      },
+      {
+        "k": 100,
+        "val_auc": 0.9956934632098765
+      },
+      {
+        "k": 150,
+        "val_auc": 0.9963172829629628
+      },
+      {
+        "k": 200,
+        "val_auc": 0.996655840493827
+      },
+      {
+        "k": 300,
+        "val_auc": 0.9968806691358024
+      }
+    ],
+    "lgb_xgb_top200_overlap_pct": 54.5
+  },
+  "validation_metrics": {
+    "lightgbm": {
+      "roc_auc": 0.9976498064197531,
+      "pr_auc": 0.9978438343107392,
+      "fpr": 0.018711111111111112,
+      "fnr": 0.02302222222222222,
+      "confusion_matrix": [
+        [
+          44158,
+          842
+        ],
+        [
+          1036,
+          43964
+        ]
+      ],
+      "threshold_used": 0.5
+    },
+    "xgboost": {
+      "roc_auc": 0.9968435138271604,
+      "pr_auc": 0.9971028538593303,
+      "fpr": 0.023777777777777776,
+      "fnr": 0.028133333333333333,
+      "confusion_matrix": [
+        [
+          43930,
+          1070
+        ],
+        [
+          1266,
+          43734
+        ]
+      ],
+      "threshold_used": 0.5
+    },
+    "ensemble": {
+      "roc_auc": 0.99739743654321,
+      "pr_auc": 0.9976129164818555,
+      "fpr": 0.02037777777777778,
+      "fnr": 0.024733333333333333,
+      "confusion_matrix": [
+        [
+          44083,
+          917
+        ],
+        [
+          1113,
+          43887
+        ]
+      ],
+      "threshold_used": 0.5
+    }
+  },
+  "test_metrics": {
+    "roc_auc": 0.99402382345,
+    "pr_auc": 0.9949212656643445,
+    "fpr": 0.03028,
+    "fnr": 0.0358,
+    "confusion_matrix": [
+      [
+        96972,
+        3028
+      ],
+      [
+        3580,
+        96420
+      ]
+    ],
+    "threshold_used": 0.5010602922493019
+  },
+  "split": {
+    "train_rows": 510000,
+    "val_rows": 90000,
+    "test_rows": 200000,
+    "method": "EMBER official temporal train/test split; stratified train/val split; verified zero sha256 overlap",
+    "max_rows_per_train_shard_cap": null,
+    "max_rows_test_cap": null
+  },
+  "library_versions": {
+    "lightgbm": "4.6.0",
+    "xgboost": "3.2.0",
+    "sklearn": "1.6.1"
+  },
+  "environment_caveats": {
+    "lief_version_installed": "1.0.0-d05b3499b",
+    "lief_version_ember_expects": "0.9.0",
+    "lief_version_mismatch_note": "Installed lief version differs from the version EMBER's feature extractor was originally validated against. Feature values may differ slightly from the official EMBER benchmark as a result.",
+    "ember_featurehasher_patch_applied": true,
+    "ember_featurehasher_patch_note": "Patched a known bug in ember/features.py (entry-point section name hashing passed a bare string to FeatureHasher instead of a list of lists of strings; see elastic/ember GitHub PR #109) to enable feature extraction under the installed lief/sklearn versions."
+  },
+  "random_state": 42,
+  "official_baseline_comparison": {
+    "official_baseline_test_metrics": {
+      "roc_auc": 0.9964055320999999,
+      "pr_auc": 0.9969370752319018,
+      "fpr": 0.01728,
+      "fnr": 0.02687,
+      "confusion_matrix": [
+        [
+          98272,
+          1728
+        ],
+        [
+          2687,
+          97313
+        ]
+      ],
+      "threshold_used": 0.5
+    },
+    "note": "Official EMBER 2018 LightGBM baseline (ember_model_2018.txt) evaluated on our exact test set (same 200,000 rows, vectorized with our lief/ember pipeline) for direct comparison. Baseline evaluated at default threshold 0.5 (no validation set available to tune it against, unlike our own model). Note the lief version mismatch documented in environment_caveats may introduce minor feature-value differences versus the baseline's original training conditions, so this comparison should be read as approximate rather than exact."
+  }
+}

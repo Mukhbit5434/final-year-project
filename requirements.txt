@@ -1,0 +1,31 @@
+# Python 3.11.x. Not 3.13 - pytsk3/lief wheel coverage is the constraint.
+# Forensic extraction deps are in requirements-forensics.txt; install that second.
+
+# Pinned exactly: these govern prediction semantics. The saved models were
+# produced under these versions (models/*/metadata.json library_versions) and
+# loading them under a different major version can silently change output.
+xgboost==3.2.0
+lightgbm==4.6.0
+scikit-learn==1.6.1
+
+numpy>=1.26,<3
+scipy>=1.11
+lime==0.2.0.1
+
+# No pandas. ember/__init__.py wants it, but we load ember/features.py
+# standalone (scripts/patch_ember.py:load_features) and that only needs
+# numpy/lief/sklearn. Nothing else here touches DataFrames - hard rule 3.
+
+Flask>=3.0
+Flask-SQLAlchemy>=3.1
+Flask-Login>=0.6
+Flask-WTF>=1.2
+Flask-Executor>=1.0
+Flask-Migrate>=4.0
+Flask-Limiter>=3.5
+SQLAlchemy>=2.0
+
+reportlab>=4.0
+
+pytest>=8.0
+pytest-flask

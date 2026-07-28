@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+instance/
+uploads/
+*.db
+*.sqlite3
+
+# Volatility 3 ISF symbol cache - large, and machine/build specific.
+# Pre-populate it per deployment; see CLAUDE.md 5.5.
+symbols/
+
+.vscode/
+.idea/
+*.log
+
+# models/ and reference_data/ are deliberately NOT ignored.
+# reference_data/*.npy is the only surviving copy of the training
+# distributions (CLAUDE.md 8.1) - losing it is unrecoverable.
