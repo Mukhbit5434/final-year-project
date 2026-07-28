@@ -5,7 +5,11 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import db
 
-PENDING, RUNNING, COMPLETED, FAILED = "PENDING", "RUNNING", "COMPLETED", "FAILED"
+# NEEDS_TYPE is where a .raw lands when content inspection can't tell a disk image
+# from a memory dump. It is a normal outcome, not an error - a raw memory dump has
+# no magic bytes to find (CLAUDE.md 10).
+NEEDS_TYPE, PENDING, RUNNING, COMPLETED, FAILED = (
+    "NEEDS_TYPE", "PENDING", "RUNNING", "COMPLETED", "FAILED")
 DISK, MEMORY = "disk", "memory"
 
 LOW, MEDIUM, HIGH, CRITICAL = "Low", "Medium", "High", "Critical"
@@ -48,7 +52,10 @@ class Job(db.Model):
     stored_name = db.Column(db.String(128), unique=True, nullable=False)
     sha256 = db.Column(db.String(64), nullable=False, index=True)
     size_bytes = db.Column(db.BigInteger, nullable=False)
-    artifact = db.Column(db.String(8), nullable=False)
+    # Null only while status is NEEDS_TYPE, i.e. detection was inconclusive and
+    # the analyst has not answered yet.
+    artifact = db.Column(db.String(8))
+    detected_as = db.Column(db.String(32))
 
     status = db.Column(db.String(16), default=PENDING, nullable=False, index=True)
     error = db.Column(db.Text)

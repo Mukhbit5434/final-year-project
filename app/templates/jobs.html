@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Jobs{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <h1 class="h4 mb-0">Analysis jobs</h1>
+  <a class="btn btn-sm btn-primary ms-auto" href="{{ url_for('main.upload') }}">Upload artifact</a>
+</div>
+
+{% if not jobs %}
+  <p class="text-body-secondary">Nothing uploaded yet.</p>
+{% else %}
+<div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead>
+      <tr>
+        <th>#</th><th>Artifact</th><th>Type</th><th>Size</th>
+        <th>Status</th><th>Uploaded</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for job in jobs %}
+      <tr>
+        <td>{{ job.id }}</td>
+        <td><a href="{{ url_for('main.job_detail', job_id=job.id) }}">{{ job.filename }}</a></td>
+        <td>{{ job.artifact or '—' }}</td>
+        <td class="mono">{{ '%.2f'|format(job.size_bytes / 1024**3) }} GB</td>
+        <td class="status-{{ job.status }}">{{ job.status }}</td>
+        <td class="small text-body-secondary">{{ job.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

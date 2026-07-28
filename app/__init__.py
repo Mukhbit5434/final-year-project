@@ -1,7 +1,9 @@
 from pathlib import Path
 
-from flask import Flask
+from flask import Flask, render_template
 from flask_executor import Executor
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_login import LoginManager
 from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
@@ -13,6 +15,9 @@ executor = Executor()
 login = LoginManager()
 migrate = Migrate()
 csrf = CSRFProtect()
+# In-memory storage on purpose: Redis is explicitly out of scope (CLAUDE.md 10).
+# Limits reset when the process does, which is fine for a single-node lab tool.
+limiter = Limiter(key_func=get_remote_address, storage_uri="memory://")
 
 
 def create_app(config=Config):
@@ -27,6 +32,7 @@ def create_app(config=Config):
     migrate.init_app(app, db)
     csrf.init_app(app)
     executor.init_app(app)
+    limiter.init_app(app)
 
     login.init_app(app)
     login.login_view = "auth.login"
@@ -37,6 +43,21 @@ def create_app(config=Config):
     @login.user_loader
     def load_user(uid):
         return db.session.get(models.User, int(uid))
+
+    from .auth import bp as auth_bp
+    from .routes import bp as main_bp
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(main_bp)
+
+    @app.errorhandler(413)
+    def too_large(_e):
+        gb = app.config["MAX_CONTENT_LENGTH"] // 1024 ** 3
+        return render_template("error.html", code=413,
+                               message=f"That artifact is larger than the {gb} GB limit."), 413
+
+    @app.errorhandler(404)
+    def not_found(_e):
+        return render_template("error.html", code=404, message="Not found."), 404
 
     @app.shell_context_processor
     def shell_ctx():

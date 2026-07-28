@@ -203,12 +203,17 @@ fixed:
 | `psxview.not_in_session` | — | **gap → 0.0** |
 | `psxview.not_in_deskthrd` | — | **gap → 0.0** |
 
-Plus the three paired `_false_avg` variants. **Six of the 55 features are permanently
-zero**, and they are not negligible in training (`not_in_deskthrd` mean 8.18,
-`not_in_session` mean 3.79). Together with the four already-constant features in 5.3,
-roughly **10 of 55 model inputs carry no information at inference time**. Disclose this
-in every memory report — it compounds with the out-of-distribution problem in 5.4 and is
-the single strongest reason to treat memory verdicts as investigative leads only.
+Plus the three paired `_false_avg` variants — **six of the 55 features are permanently
+zero.**
+
+**Measured, and the impact is small.** Those six carry **0.2% of the model's total gain**.
+Forcing them to 0.0 across all 5,000 reference rows changes **1 verdict in 5,000
+(0.02%)** and leaves the distribution bimodal. The four training-constant features in 5.3
+have **zero splits** in the model — a constant column yields no information gain, so it
+is never selected, and what we emit for them cannot affect the prediction at all.
+
+So the psxview gap is a disclosure item, not a correctness problem. Report it; do not
+treat it as the reason memory verdicts are weak. The real reason is 5.4a.
 
 Confirm these column names still hold when volatility3 is upgraded; build the mapping
 from the installed source, never from Vol2 documentation.
@@ -252,6 +257,39 @@ These are dead or near-dead inputs. They are documented here so nobody "fixes" t
 | `svcscan.interactive_process_services` | always 0 | Vol3 does expose `SERVICE_INTERACTIVE_PROCESS`, so a real dump may produce a nonzero value the model has never seen. Emit honestly. |
 | `callbacks.ngeneric` | always 8.0 | Constant, not zero. The model learned nothing from it. |
 | `modules.nmodules` | ∈ {137, 138} | A single OS build. A real dump gives ~400. |
+
+### 5.4a What the memory model actually keys on — measured
+
+Four features carry essentially the whole decision:
+
+| Feature | gain | benign median | malware median |
+|---|---:|---:|---:|
+| `svcscan.nservices` | 3346 | 395 | 389 |
+| `handles.nmutant` | 3238 | 366 | 259 |
+| `svcscan.shared_process_services` | 3133 | 118 | 116 |
+| `svcscan.kernel_drivers` | 2317 | 222 | 221 |
+| *next feature down* | *39* | | |
+
+An 80× cliff after the fourth. Three of the four are **counts of installed services and
+drivers** — properties of how a machine is *configured*, not of what malware *does* — and
+their class medians differ by 1–6 while separating almost perfectly. That only happens
+when the two classes are tight clusters at slightly different values, i.e. the benign and
+malicious captures came from differently configured VMs and the model learned to tell the
+**VMs** apart.
+
+Meanwhile the genuinely behavioural features overlap almost completely between classes:
+`malfind.ninjections` 4 vs 3 (100% overlap), `ldrmodules.not_in_load` 74 vs 46 (99.9%),
+`psxview.not_in_pslist` 0 vs 1 (100%). `malfind.ninjections` is actually *higher* in the
+benign group.
+
+And every dominant feature is out of range on a modern host: `svcscan.nservices` trains on
+[195, 395] where real Win10/11 gives ~600; `kernel_drivers` [108, 222] vs ~350;
+`shared_process_services` [65, 118] vs ~180; `handles.nmutant` [168, 565] vs ~900.
+
+**Consequence: on a real dump the memory model's probability is not trustworthy.** This is
+the dataset artifact `models/memory/metadata.json` already warns about, now with a
+mechanism. It is not fixable here — retraining is out of scope (hard rule 7) — so the
+memory report must be **evidence-led, not verdict-led**. See 9.6.
 
 ### 5.4 Out-of-distribution check — MANDATORY
 
@@ -679,7 +717,9 @@ report less credible, not more.
 ### 9.3 Severity scoring
 
 ```
-severity = f(model_confidence, count and weight of matched high-risk tags)
+disk:   severity = f(model_confidence, count and weight of matched high-risk tags)
+memory: severity = f(observed indicators, count and weight of matched high-risk tags)
+                   with model_confidence as at most a tie-breaker — see 9.6
 ```
 Buckets: Low / Medium / High / Critical. Keep the function simple, deterministic, and
 **visible in the report** ("High — model confidence 0.94, 3 high-risk indicator
@@ -713,6 +753,35 @@ scored. Do not make this a black box on top of a black box.
    is empty. A test must fail if any mandatory string is absent.
 7. **Appendix** — full feature contribution list, environment/library versions,
    model metadata
+
+### 9.6 Memory reports are evidence-led, not verdict-led
+
+Because of 5.4a the memory model's probability is weak evidence on any dump that is not
+from the CIC-MalMem capture VM. The extracted Volatility observations are **not** weak —
+they are direct measurements of the dump and are true regardless of what the model says.
+So the memory report inverts the usual order.
+
+**Lead with what was observed.** Injected executable regions and the processes holding
+them; modules in memory but absent from the PEB loader lists; processes visible to one
+enumeration method and not another; kernel callbacks with unbacked modules; registered
+services and drivers. Each with counts and, where the plugin exposes them, process names
+and PIDs. This is the substance of the report and it is what an analyst acts on.
+
+**Demote the model score to a secondary triage signal.** Still show it — it is the
+project's trained model and it belongs there — but next to the OOD count from 5.4, never
+as the headline. When the four dominant features of 5.4a fall outside their training
+range, print that plainly instead of a confident percentage:
+
+> Model verdict: not reliable for this capture. 4 of the 4 features this model depends on
+> most fall outside the range it was trained on.
+
+**Severity for memory comes from the observed indicators, not the probability.** Three
+hidden modules plus injected memory is High because of what was found. The probability
+may contribute, but it must never be the sole driver. Disk severity is unaffected and
+stays verdict-led — that pipeline has no equivalent problem.
+
+This is not a workaround for a broken model. Evidence-first is how memory forensics is
+actually practised, and it makes the report useful even when the model is not.
 
 ### 9.5 Per-file findings for disk images — locating the artifact
 
@@ -906,6 +975,9 @@ a tutorial generator. Concretely:
     kill unrelated jobs.
 21. Never cite MITRE T1179, T1547.006, or T1574 in this project's mappings. See the
     corrections in Section 9.2.
+22. Never headline a memory report with the model probability. Memory reports lead with
+    observed Volatility findings; the score is secondary and carries the OOD count with
+    it (Sections 5.4a and 9.6).
 
 ---
 

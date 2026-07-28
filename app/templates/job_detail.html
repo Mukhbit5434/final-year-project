@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job.id }}{% endblock %}
+
+{% block content %}
+<h1 class="h4 mb-1">{{ job.filename }}</h1>
+<p class="status-{{ job.status }} mb-4">{{ job.status }}</p>
+
+{% if job.status == 'NEEDS_TYPE' %}
+  <div class="alert alert-warning">
+    This artifact could not be identified from its contents.
+    <a href="{{ url_for('main.confirm_type', job_id=job.id) }}">Tell us what it is</a>
+    before analysis can start.
+  </div>
+{% endif %}
+
+<div class="card">
+  <div class="card-header">Chain of custody</div>
+  <div class="card-body">
+    <dl class="facts row mb-0">
+      <dt class="col-sm-3">Job ID</dt><dd class="col-sm-9">{{ job.id }}</dd>
+      <dt class="col-sm-3">Uploaded by</dt><dd class="col-sm-9">{{ job.user.username }}</dd>
+      <dt class="col-sm-3">Uploaded at</dt>
+      <dd class="col-sm-9">{{ job.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</dd>
+      <dt class="col-sm-3">Size</dt>
+      <dd class="col-sm-9 mono">{{ '{:,}'.format(job.size_bytes) }} bytes</dd>
+      <dt class="col-sm-3">SHA-256</dt><dd class="col-sm-9 hash">{{ job.sha256 }}</dd>
+      <dt class="col-sm-3">Artifact type</dt>
+      <dd class="col-sm-9">
+        {{ job.artifact or 'undetermined' }}
+        {% if job.detected_as %}
+          <span class="text-body-secondary small d-block">{{ job.detected_as }}</span>
+        {% endif %}
+      </dd>
+      {% if job.duration %}
+        <dt class="col-sm-3">Analysis time</dt>
+        <dd class="col-sm-9">{{ '%.1f'|format(job.duration / 60) }} minutes</dd>
+      {% endif %}
+      {% if job.error %}
+        <dt class="col-sm-3">Error</dt>
+        <dd class="col-sm-9 text-danger">{{ job.error }}</dd>
+      {% endif %}
+    </dl>
+  </div>
+</div>
+
+<p class="text-body-secondary small mt-4">
+  Results appear here once analysis runs.
+</p>
+{% endblock %}

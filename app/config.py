@@ -45,3 +45,6 @@ class TestConfig(Config):
     SQLALCHEMY_DATABASE_URI = "sqlite://"
     WTF_CSRF_ENABLED = False
     SECRET_KEY = "test"
+    # Rate limiting stays on under test. Flask-Limiter's init_app returns early
+    # when disabled, so switching it off here would mean never exercising the
+    # real code path; the conftest resets the counters between tests instead.

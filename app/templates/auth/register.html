@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Create account{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-5">
+    <h1 class="h4 mb-3">Create account</h1>
+    <form method="post" novalidate>
+      {{ form.hidden_tag() }}
+      {% for field in [form.username, form.email, form.password, form.confirm] %}
+        <div class="mb-3">
+          {{ field.label(class="form-label") }}
+          {{ field(class="form-control") }}
+          {% for err in field.errors %}
+            <div class="form-text text-danger">{{ err }}</div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+      <p class="small text-body-secondary">Minimum 12 characters.</p>
+      {{ form.submit(class="btn btn-primary") }}
+    </form>
+  </div>
+</div>
+{% endblock %}

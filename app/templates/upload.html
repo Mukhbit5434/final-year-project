@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Upload artifact{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <h1 class="h4 mb-3">Upload artifact</h1>
+
+    <form method="post" enctype="multipart/form-data" novalidate>
+      {{ form.hidden_tag() }}
+
+      <div class="mb-3">
+        {{ form.artifact_file.label(class="form-label") }}
+        {{ form.artifact_file(class="form-control") }}
+        <div class="form-text">
+          Raw disk images (.dd, .raw, .img), EWF containers (.E01, .EX01), or memory
+          dumps (.mem, .dmp, .vmem, .raw). Maximum {{ max_gb }} GB.
+        </div>
+      </div>
+
+      <fieldset class="mb-3">
+        <legend class="form-label fs-6">{{ form.artifact.label.text }}</legend>
+        {% for choice in form.artifact %}
+          <div class="form-check">
+            {{ choice(class="form-check-input") }}
+            {{ choice.label(class="form-check-label") }}
+          </div>
+        {% endfor %}
+        <div class="form-text">
+          Detection reads the file's contents, not its extension. A raw memory dump has
+          no identifying header, so if the file is ambiguous you will be asked.
+        </div>
+      </fieldset>
+
+      {{ form.submit(class="btn btn-primary") }}
+    </form>
+
+    <div class="alert alert-secondary mt-4 small mb-0">
+      Uploaded artifacts are stored outside the web root and are never served back over
+      HTTP. They are read for analysis only and are never executed.
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Identify artifact{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <h1 class="h4 mb-3">What is this artifact?</h1>
+
+    <p class="text-body-secondary">
+      <span class="mono">{{ job.filename }}</span> could not be identified from its
+      contents: {{ job.detected_as }}.
+    </p>
+    <p class="text-body-secondary small">
+      This is expected for raw memory dumps. A disk image carries an MBR or GPT
+      signature; a <span class="mono">.raw</span> or <span class="mono">.vmem</span>
+      memory image carries nothing to match against, so the absence of a disk signature
+      is not proof of anything on its own.
+    </p>
+
+    <form method="post" novalidate>
+      {{ form.hidden_tag() }}
+      <fieldset class="mb-3">
+        {% for choice in form.artifact %}
+          <div class="form-check">
+            {{ choice(class="form-check-input") }}
+            {{ choice.label(class="form-check-label") }}
+          </div>
+        {% endfor %}
+      </fieldset>
+      {{ form.submit(class="btn btn-primary") }}
+    </form>
+  </div>
+</div>
+{% endblock %}
