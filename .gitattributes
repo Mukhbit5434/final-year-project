@@ -1,0 +1,8 @@
+* text=auto eol=lf
+
+# Never normalise these. lightgbm_model.txt is 14 MB of text that git would
+# happily rewrite to CRLF on checkout, and the .npy files in reference_data are
+# the only surviving copy of the training distributions - CLAUDE.md 8.1.
+models/** -text
+reference_data/** -text
+*.npy binary
