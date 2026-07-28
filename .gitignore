@@ -9,6 +9,10 @@ uploads/
 *.db
 *.sqlite3
 
+# Test artifacts - hundreds of MB of disk images and memory dumps. Kept out of
+# the repo deliberately; document where to obtain them instead.
+sample/
+
 # Volatility 3 ISF symbol cache - large, and machine/build specific.
 # Pre-populate it per deployment; see CLAUDE.md 5.5.
 symbols/
