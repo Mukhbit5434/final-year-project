@@ -34,6 +34,8 @@ class Config:
     EXECUTOR_MAX_WORKERS = int(os.environ.get("JOB_WORKERS", 2))
     EXECUTOR_PROPAGATE_EXCEPTIONS = False
 
+    LOAD_MODELS = True
+
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = bool(os.environ.get("HTTPS"))
@@ -45,6 +47,9 @@ class TestConfig(Config):
     SQLALCHEMY_DATABASE_URI = "sqlite://"
     WTF_CSRF_ENABLED = False
     SECRET_KEY = "test"
+    # Loading two boosters plus 8 MB of reference data on every app fixture would
+    # dominate the suite. The inference tests load them once themselves.
+    LOAD_MODELS = False
     # Rate limiting stays on under test. Flask-Limiter's init_app returns early
     # when disabled, so switching it off here would mean never exercising the
     # real code path; the conftest resets the counters between tests instead.

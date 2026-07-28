@@ -508,10 +508,22 @@ Measured, so the expected values are known rather than guessed:
 | disk, correct order | 0.490 | 0.129 |
 | disk, columns scrambled | 0.297 | 0.849 |
 
-The scrambled memory case squashes every probability into 0.04–0.20 — nothing crosses
-the threshold at all. The check is extremely sensitive, so **keep a scrambled-column
-control in the test suite permanently**, not just as a one-off. It is the only guard that
-catches a reordering bug, which otherwise produces confident wrong answers forever.
+**Keep a scrambled-column control in the test suite permanently**, not as a one-off.
+Measured over 200 random permutations, the check rejects **200/200 on both models**. The
+failure signature varies though — some permutations squash everything into 0.04–0.20,
+others push 99% above the threshold — so assert *"the startup check refuses this"*, never
+a fixed statistic.
+
+**Know its limit.** The check catches wholesale reordering. It does **not** catch small
+transpositions: swapping two adjacent columns is caught in only **5 of 54** cases on
+memory and **0 of 149** on disk, because the aggregate distribution barely moves. So a
+two-field mix-up in an extractor mapping will sail straight through.
+
+The guard against *that* is structural, not statistical, and it is binding on Section 5:
+**build the vector as a dict keyed by feature name, then emit it in `feature_list.json`
+order.** Never hand-sequence the fields, and unit-test that the emitted order equals the
+JSON order. For disk this is already the case — the subset indices are derived from the
+names — and an `np.arange(2381)` probe pins it exactly.
 
 ---
 
