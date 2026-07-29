@@ -334,6 +334,38 @@ nothing to distinguish the two cases.
   each of the 55 values next to that column's training min/max, so they can be eyeballed
   before trusting the pipeline end to end.
 
+### 5.6 volatility3 cannot auto-detect a 32-bit PAE page directory — worked around
+
+**Measured against volatility3 2.28.0 on a Windows 10 x86 capture.** Stock automagic
+fails on every 32-bit PAE image, and the stock `vol` CLI fails identically, so this is
+upstream and not a harness problem:
+
+```
+No suitable kernels found during pdbscan
+Unsatisfied requirement plugins.Info.kernel.layer_name
+```
+
+`WindowsIntelStacker.stack` guards against Windows' small dummy page tables by reading
+the candidate's 4 KB page and discarding it if fewer than 10 pointers are valid
+(`automagic/windows.py`, `page_table_is_dummy`). **A PAE page-directory-pointer table
+has exactly four entries by architecture.** So every genuine PAE DTB is thrown away, no
+Intel layer is ever built, and `determine_valid_kernel` then has no layer to scan.
+
+Confirmed on the sample capture: the real DTB is at `0x1a8000`, holds exactly 4 valid
+pointers, and is rejected. Constructing `WindowsIntelPAE` at that offset by hand resolves
+`ntkrpamp.pdb` immediately with the kernel at `0x8186c000`, and all nine plugins then run.
+
+`extractors/memory.py:find_pae_dtb` and `build_context` do exactly that. Stock automagic
+is still tried first, so 64-bit images and crash dumps keep the supported path; the manual
+construction is the fallback. Do not "simplify" this away — without it the memory pipeline
+cannot read a 32-bit dump at all, and 32-bit is the configuration closest to what
+CIC-MalMem-2022 was captured on.
+
+Note also that a VMware `.vmem` whose `.vmss` reports `regionsCount == 0` makes
+`VmwareLayer` raise `VmwareFormatException: VMware VMEM is not split into regions`. That
+is not an error condition — it means memory is one flat block and the `.vmem` should be
+read directly as a raw image, which is what the fallback does.
+
 Volatility 3 resolves Windows kernel symbols by downloading PDB-derived ISF JSON from
 `downloads.volatilityfoundation.org` on first encounter with an unseen build. On an
 offline machine memory extraction fails with a confusing symbol error. **Pre-populate the

@@ -1,4 +1,4 @@
-import json
+import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -39,13 +39,15 @@ HANDLE_TYPES = {
     "handles.nsection": "Section", "handles.nmutant": "Mutant",
 }
 
+# ldrmodules, malfind and psxview live under windows.malware.* now; the old
+# windows.* names still resolve but emit a removal warning dated 2026-06-07.
 PLUGINS = {
     "pslist": "windows.pslist.PsList",
     "dlllist": "windows.dlllist.DllList",
     "handles": "windows.handles.Handles",
-    "ldrmodules": "windows.ldrmodules.LdrModules",
-    "malfind": "windows.malfind.Malfind",
-    "psxview": "windows.psxview.PsXView",
+    "ldrmodules": "windows.malware.ldrmodules.LdrModules",
+    "malfind": "windows.malware.malfind.Malfind",
+    "psxview": "windows.malware.psxview.PsXView",
     "modules": "windows.modules.Modules",
     "svcscan": "windows.svcscan.SvcScan",
     "callbacks": "windows.callbacks.Callbacks",
@@ -56,18 +58,14 @@ class ExtractionError(RuntimeError):
     pass
 
 
-def run_plugin(dump, plugin, catalog=None):
-    """Run one Volatility 3 plugin and collect its rows as dicts."""
-    from volatility3 import framework
-    from volatility3.framework import automagic, contexts, interfaces, plugins
-    import volatility3.plugins
+def _url(path):
+    # pathname2url handles the spaces in this project's own path, which a naive
+    # "file://" + str(path) does not.
+    return urllib.parse.urljoin("file:", urllib.request.pathname2url(str(Path(path).resolve())))
 
-    if catalog is None:
-        framework.import_files(volatility3.plugins, True)
-        catalog = framework.list_plugins()
 
-    if plugin not in catalog:
-        raise ExtractionError(f"{plugin} is not available in this volatility3 build")
+def _no_files():
+    from volatility3.framework import interfaces
 
     class _NoFiles(interfaces.plugins.FileHandlerInterface):
         def preferred_filename(self):
@@ -76,15 +74,110 @@ def run_plugin(dump, plugin, catalog=None):
         def close(self):
             pass
 
+    return _NoFiles
+
+
+def find_pae_dtb(ctx, layer_name):
+    """Locate a PAE page-directory-pointer table by hand.
+
+    volatility3 2.28 cannot do this itself. WindowsIntelStacker rejects any
+    candidate whose 4 KB page holds fewer than 10 valid pointers, as a guard
+    against Windows' small dummy page tables - but a PAE PDPT has exactly four
+    entries by architecture, so every genuine 32-bit PAE DTB is discarded and no
+    layer is ever built. Verified against volatility3 2.28.0 on a Windows 10 x86
+    capture: the real DTB sits at 0x1a8000 with 4 valid pointers and is thrown
+    away, and both this library and the stock `vol` CLI then report
+    "No suitable kernels found during pdbscan".
+    """
+    from volatility3.framework.automagic import windows as winmagic
+
+    scanner = winmagic.PageMapScanner([winmagic.DtbSelfRefPae()])
+    hits = [offset for _, offset in ctx.layers[layer_name].scan(ctx, scanner)]
+    if not hits:
+        return None
+    # Modern Windows randomises the self-referential index but keeps the DTB in
+    # a narrow band; prefer a hit there when several turn up.
+    preferred = [h for h in hits if 0x1A0000 <= h < 0x1B0000]
+    return (preferred or hits)[0]
+
+
+def build_context(dump):
+    """-> (context, layer_name, symbol_table, kernel_offset)
+
+    Tries stock automagic first so 64-bit images and crash dumps keep the
+    supported path, then falls back to constructing the PAE layer directly.
+    """
+    from volatility3 import framework
+    from volatility3.framework import automagic, contexts, exceptions
+    from volatility3.framework.layers import intel, physical
+    from volatility3.framework.symbols.windows import pdbutil
+    import volatility3.plugins
+
+    framework.import_files(sys.modules["volatility3.framework.layers"])
+
     ctx = contexts.Context()
-    # pathname2url handles the spaces in this project's own path, which a naive
-    # "file://" + str(path) does not.
-    ctx.config["automagic.LayerStacker.single_location"] = urllib.parse.urljoin(
-        "file:", urllib.request.pathname2url(str(Path(dump).resolve())))
+    ctx.config["automagic.LayerStacker.single_location"] = _url(dump)
+    ctx.config["base.location"] = _url(dump)
+    ctx.add_layer(physical.FileLayer(ctx, "base", "base"))
+
+    dtb = find_pae_dtb(ctx, "base")
+    if dtb is None:
+        return ctx, None, None, None
+
+    ctx.config["primary_cfg.memory_layer"] = "base"
+    ctx.config["primary_cfg.page_map_offset"] = dtb
+    ctx.add_layer(intel.WindowsIntelPAE(ctx, "primary_cfg", "primary",
+                                        metadata={"os": "Windows"}))
+
+    kernels = list(pdbutil.PDBUtility.pdbname_scan(
+        ctx=ctx, layer_name="primary", start=0, page_size=0x1000,
+        pdb_names=[bytes(n + ".pdb", "utf-8") for n in
+                   ("ntkrpamp", "ntkrnlmp", "ntkrnlpa", "ntoskrnl")]))
+    if not kernels:
+        raise ExtractionError(
+            f"a PAE page directory was found at {dtb:#x} but no Windows kernel is "
+            "mapped through it; the capture may be torn or from a paused-but-not-"
+            "suspended VM")
+
+    kernel = kernels[0]
+    table = pdbutil.PDBUtility.load_windows_symbol_table(
+        context=ctx, guid=kernel["GUID"], age=kernel["age"],
+        pdb_name=kernel["pdb_name"], config_path="pdbutility",
+        symbol_table_class="volatility3.framework.symbols.windows.WindowsKernelIntermedSymbols")
+
+    kvo = kernel["mz_offset"]
+    ctx.config["primary_cfg.kernel_virtual_offset"] = kvo
+    return ctx, "primary", table, kvo
+
+
+def run_plugin(dump, plugin, catalog=None, prepared=None):
+    """Run one Volatility 3 plugin and collect its rows as dicts."""
+    from volatility3 import framework
+    from volatility3.framework import automagic, contexts, plugins
+    import volatility3.plugins
+
+    if catalog is None:
+        framework.import_files(volatility3.plugins, True)
+        catalog = framework.list_plugins()
+    if plugin not in catalog:
+        raise ExtractionError(f"{plugin} is not available in this volatility3 build")
 
     cls = catalog[plugin]
-    autos = automagic.choose_automagic(automagic.available(ctx), cls)
-    built = plugins.construct_plugin(ctx, autos, cls, "plugins", None, _NoFiles)
+    name = cls.__name__
+
+    if prepared is None:
+        ctx = contexts.Context()
+        ctx.config["automagic.LayerStacker.single_location"] = _url(dump)
+        autos = automagic.choose_automagic(automagic.available(ctx), cls)
+    else:
+        ctx, layer, table, kvo = prepared
+        ctx = ctx.clone()
+        ctx.config[f"plugins.{name}.kernel.layer_name"] = layer
+        ctx.config[f"plugins.{name}.kernel.symbol_table_name"] = table
+        ctx.config[f"plugins.{name}.kernel.offset"] = kvo
+        autos = automagic.choose_automagic(automagic.available(ctx), cls)
+
+    built = plugins.construct_plugin(ctx, autos, cls, "plugins", None, _no_files())
 
     grid = built.run()
     cols = [c.name for c in grid.columns]
@@ -291,11 +384,15 @@ def extract(dump, feature_names, progress=None):
     framework.import_files(volatility3.plugins, True)
     catalog = framework.list_plugins()
 
+    prepared = build_context(dump)
+    if prepared[1] is None:
+        prepared = None
+
     collected = {}
     for key, plugin in PLUGINS.items():
         if progress:
             progress(key, plugin)
-        _, rows = run_plugin(dump, plugin, catalog)
+        _, rows = run_plugin(dump, plugin, catalog, prepared)
         collected[key] = rows
 
     nproc = len(collected["pslist"])

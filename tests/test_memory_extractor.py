@@ -204,6 +204,23 @@ def test_all_nine_plugins_exist_in_the_installed_volatility():
         assert plugin in catalog, f"{key} -> {plugin} missing"
 
 
+def test_volatility_still_rejects_pae_page_directories():
+    """Pins the upstream bug the manual layer construction exists to work around.
+
+    WindowsIntelStacker discards any DTB candidate whose page holds fewer than 10
+    valid pointers, and a PAE PDPT has exactly four. If a volatility3 upgrade
+    fixes this, the assertion below fails and find_pae_dtb can go.
+    """
+    import inspect
+
+    from volatility3.framework.automagic import windows as winmagic
+
+    src = inspect.getsource(winmagic.WindowsIntelStacker.stack)
+    assert "page_table_is_dummy" in src
+    assert "valid_pointers >= 10" in inspect.getsource(winmagic.WindowsIntelStacker.stack) \
+        or "valid_pointers >= 10" in inspect.getsource(winmagic)
+
+
 def test_psxview_still_exposes_only_the_four_columns_we_mapped():
     # If a volatility3 upgrade restores pspcid/session/deskthrd this fails, which
     # is the point - the mapping must be rebuilt from the installed source.
@@ -213,7 +230,7 @@ def test_psxview_still_exposes_only_the_four_columns_we_mapped():
     import volatility3.plugins
 
     framework.import_files(volatility3.plugins, True)
-    src = inspect.getsource(framework.list_plugins()["windows.psxview.PsXView"].run)
+    src = inspect.getsource(framework.list_plugins()[ex.PLUGINS["psxview"]].run)
     for column in ("pslist", "psscan", "thrdscan", "csrss"):
         assert f'("{column}", bool)' in src
     for absent in ("pspcid", "session", "deskthrd"):
