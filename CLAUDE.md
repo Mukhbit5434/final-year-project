@@ -1026,6 +1026,13 @@ and let memory use a single row.
   document this as a lab-tool constraint — Gunicorn and Nginx are out of scope, so there
   is no way around it.
 - Detect jobs left `RUNNING` by a crashed process at next boot and mark them `FAILED`.
+- **Windows spawns process-pool workers by re-importing the `__main__` module.** Every
+  line outside an `if __name__ == "__main__":` guard therefore runs again in each worker.
+  Hence `wsgi.py` (holds `app = create_app()`, the FLASK_APP target) is separate from
+  `run.py` (guarded launcher). Without the split, each extraction worker built a second
+  Flask app and loaded both models; a script that did DB writes at module level crashed
+  its workers outright and the pool came back as `BrokenProcessPool`. Any new entry point
+  that can reach `jobs.pool()` needs the same guard.
 
 **Security — implement properly, this is a forensics tool:**
 - Password hashing (`werkzeug.security` or `passlib`) — never plaintext
