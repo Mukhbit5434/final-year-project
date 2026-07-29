@@ -371,9 +371,12 @@ Volatility 3 resolves Windows kernel symbols by downloading PDB-derived ISF JSON
 offline machine memory extraction fails with a confusing symbol error. **Pre-populate the
 symbol cache** for the builds being analysed, ship it alongside the app, and document it.
 
-Expect this extractor to take **15–45 minutes**, dominated by `windows.handles` (needed
-for 13 of the 55 features). Do not promise "seconds" anywhere in the UI. A per-plugin
-progress indicator is worth building so a 40-minute job does not look hung.
+**Measured: 3.7 minutes** for all nine plugins on a 2 GB Windows 10 x86 capture (78
+processes, 34,323 handles), symbol cache already warm. The first run on an unseen build
+adds ~4 minutes of ISF download. Earlier drafts of this file guessed 15–45 minutes;
+that was pessimistic, but the runtime scales with dump size and process count and a
+large multi-socket capture will be far slower. Hard rule 10 still stands — say minutes,
+never seconds — and keep the per-plugin progress indicator.
 
 ---
 

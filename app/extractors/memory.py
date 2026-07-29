@@ -101,53 +101,67 @@ def find_pae_dtb(ctx, layer_name):
     return (preferred or hits)[0]
 
 
-def build_context(dump):
-    """-> (context, layer_name, symbol_table, kernel_offset)
+def build_context(dump, catalog=None):
+    """-> {ctx, layer, symbols, offset, bits} describing the kernel to analyse.
 
-    Tries stock automagic first so 64-bit images and crash dumps keep the
-    supported path, then falls back to constructing the PAE layer directly.
+    The PAE path is tried first because stock automagic cannot build a layer for
+    a 32-bit image at all (see 5.6); anything else falls through to automagic,
+    which handles 64-bit images and crash dumps on the supported path.
     """
     from volatility3 import framework
-    from volatility3.framework import automagic, contexts, exceptions
+    from volatility3.framework import automagic, contexts, plugins
     from volatility3.framework.layers import intel, physical
     from volatility3.framework.symbols.windows import pdbutil
     import volatility3.plugins
 
     framework.import_files(sys.modules["volatility3.framework.layers"])
+    if catalog is None:
+        framework.import_files(volatility3.plugins, True)
+        catalog = framework.list_plugins()
 
     ctx = contexts.Context()
     ctx.config["automagic.LayerStacker.single_location"] = _url(dump)
     ctx.config["base.location"] = _url(dump)
     ctx.add_layer(physical.FileLayer(ctx, "base", "base"))
-
     dtb = find_pae_dtb(ctx, "base")
-    if dtb is None:
-        return ctx, None, None, None
 
-    ctx.config["primary_cfg.memory_layer"] = "base"
-    ctx.config["primary_cfg.page_map_offset"] = dtb
-    ctx.add_layer(intel.WindowsIntelPAE(ctx, "primary_cfg", "primary",
-                                        metadata={"os": "Windows"}))
+    if dtb is not None:
+        ctx.config["primary_cfg.memory_layer"] = "base"
+        ctx.config["primary_cfg.page_map_offset"] = dtb
+        ctx.add_layer(intel.WindowsIntelPAE(ctx, "primary_cfg", "primary",
+                                            metadata={"os": "Windows"}))
 
-    kernels = list(pdbutil.PDBUtility.pdbname_scan(
-        ctx=ctx, layer_name="primary", start=0, page_size=0x1000,
-        pdb_names=[bytes(n + ".pdb", "utf-8") for n in
-                   ("ntkrpamp", "ntkrnlmp", "ntkrnlpa", "ntoskrnl")]))
-    if not kernels:
-        raise ExtractionError(
-            f"a PAE page directory was found at {dtb:#x} but no Windows kernel is "
-            "mapped through it; the capture may be torn or from a paused-but-not-"
-            "suspended VM")
+        kernels = list(pdbutil.PDBUtility.pdbname_scan(
+            ctx=ctx, layer_name="primary", start=0, page_size=0x1000,
+            pdb_names=[bytes(n + ".pdb", "utf-8") for n in
+                       ("ntkrpamp", "ntkrnlmp", "ntkrnlpa", "ntoskrnl")]))
+        if not kernels:
+            raise ExtractionError(
+                f"a PAE page directory was found at {dtb:#x} but no Windows kernel is "
+                "mapped through it; the capture may be torn or from a paused-but-not-"
+                "suspended VM")
 
-    kernel = kernels[0]
-    table = pdbutil.PDBUtility.load_windows_symbol_table(
-        context=ctx, guid=kernel["GUID"], age=kernel["age"],
-        pdb_name=kernel["pdb_name"], config_path="pdbutility",
-        symbol_table_class="volatility3.framework.symbols.windows.WindowsKernelIntermedSymbols")
+        kernel = kernels[0]
+        table = pdbutil.PDBUtility.load_windows_symbol_table(
+            context=ctx, guid=kernel["GUID"], age=kernel["age"],
+            pdb_name=kernel["pdb_name"], config_path="pdbutility",
+            symbol_table_class="volatility3.framework.symbols.windows."
+                               "WindowsKernelIntermedSymbols")
+        ctx.config["primary_cfg.kernel_virtual_offset"] = kernel["mz_offset"]
+        return {"ctx": ctx, "layer": "primary", "symbols": table,
+                "offset": kernel["mz_offset"], "bits": 32}
 
-    kvo = kernel["mz_offset"]
-    ctx.config["primary_cfg.kernel_virtual_offset"] = kvo
-    return ctx, "primary", table, kvo
+    ctx = contexts.Context()
+    ctx.config["automagic.LayerStacker.single_location"] = _url(dump)
+    cls = catalog["windows.pslist.PsList"]
+    autos = automagic.choose_automagic(automagic.available(ctx), cls)
+    plugins.construct_plugin(ctx, autos, cls, "plugins", None, _no_files())
+
+    layer = ctx.config["plugins.PsList.kernel.layer_name"]
+    return {"ctx": ctx, "layer": layer,
+            "symbols": ctx.config["plugins.PsList.kernel.symbol_table_name"],
+            "offset": ctx.config["plugins.PsList.kernel.offset"],
+            "bits": 64 if isinstance(ctx.layers[layer], intel.Intel32e) else 32}
 
 
 def run_plugin(dump, plugin, catalog=None, prepared=None):
@@ -168,14 +182,16 @@ def run_plugin(dump, plugin, catalog=None, prepared=None):
     if prepared is None:
         ctx = contexts.Context()
         ctx.config["automagic.LayerStacker.single_location"] = _url(dump)
-        autos = automagic.choose_automagic(automagic.available(ctx), cls)
     else:
-        ctx, layer, table, kvo = prepared
-        ctx = ctx.clone()
-        ctx.config[f"plugins.{name}.kernel.layer_name"] = layer
-        ctx.config[f"plugins.{name}.kernel.symbol_table_name"] = table
-        ctx.config[f"plugins.{name}.kernel.offset"] = kvo
-        autos = automagic.choose_automagic(automagic.available(ctx), cls)
+        ctx = prepared["ctx"].clone()
+        base = f"plugins.{name}.kernel"
+        ctx.config[f"{base}.layer_name"] = prepared["layer"]
+        ctx.config[f"{base}.symbol_table_name"] = prepared["symbols"]
+        ctx.config[f"{base}.offset"] = prepared["offset"]
+        # KernelModule reads the kernel base from under the layer requirement's
+        # own path rather than from the layer's config, so it has to be here too.
+        ctx.config[f"{base}.layer_name.kernel_virtual_offset"] = prepared["offset"]
+    autos = automagic.choose_automagic(automagic.available(ctx), cls)
 
     built = plugins.construct_plugin(ctx, autos, cls, "plugins", None, _no_files())
 
@@ -199,20 +215,25 @@ def _ratio(numerator, denominator):
     return float(numerator) / denominator if denominator else 0.0
 
 
-def from_pslist(rows):
+def from_pslist(rows, nhandles, bits):
     n = len(rows)
-    threads = [r.get("Threads") or 0 for r in rows]
-    handles = [r.get("Handles") for r in rows]
-    live = [h for h in handles if isinstance(h, int)]
+    threads = [t for t in (r.get("Threads") for r in rows) if isinstance(t, int)]
     return {
         "pslist.nproc": float(n),
         # Distinct parent PIDs. Mean 14.7 against nproc 41.5 in training fits this
         # reading; "processes with a live parent" also fits and is not separable
         # from the reference data.
         "pslist.nppid": float(len({r.get("PPID") for r in rows})),
-        "pslist.avg_threads": _ratio(sum(threads), n),
-        "pslist.nprocs64bit": _count(rows, lambda r: r.get("Wow64") is False),
-        "pslist.avg_handlers": _ratio(sum(live), len(live)),
+        "pslist.avg_threads": _ratio(sum(threads), len(threads)),
+        # A process is 64-bit only on a 64-bit kernel; Wow64 is False for every
+        # process on x86, so counting !Wow64 there would report every process as
+        # 64-bit. Training saw 0 throughout because the capture VM was x86.
+        "pslist.nprocs64bit": (_count(rows, lambda r: r.get("Wow64") is False)
+                               if bits == 64 else 0.0),
+        # Vol3's pslist leaves Handles unpopulated on most builds, so this shares
+        # handles.nhandles/nproc with handles.avg_handles_per_proc. CLAUDE.md 5.2:
+        # the two are not independently derivable and both are disclosed.
+        "pslist.avg_handlers": _ratio(nhandles, n),
     }
 
 
@@ -384,9 +405,7 @@ def extract(dump, feature_names, progress=None):
     framework.import_files(volatility3.plugins, True)
     catalog = framework.list_plugins()
 
-    prepared = build_context(dump)
-    if prepared[1] is None:
-        prepared = None
+    prepared = build_context(dump, catalog)
 
     collected = {}
     for key, plugin in PLUGINS.items():
@@ -396,10 +415,11 @@ def extract(dump, feature_names, progress=None):
         collected[key] = rows
 
     nproc = len(collected["pslist"])
+    nhandles = len(collected["handles"])
     malfind_fields, unknown = from_malfind(collected["malfind"], nproc)
 
     parts = [
-        from_pslist(collected["pslist"]),
+        from_pslist(collected["pslist"], nhandles, prepared["bits"]),
         from_dlllist(collected["dlllist"], nproc),
         from_handles(collected["handles"], nproc),
         from_ldrmodules(collected["ldrmodules"]),
@@ -411,4 +431,4 @@ def extract(dump, feature_names, progress=None):
     ]
     vec, gaps = assemble(parts, feature_names, unknown)
     counts = {k: len(v) for k, v in collected.items()}
-    return {"vec": vec, "gaps": gaps, "plugin_rows": counts}
+    return {"vec": vec, "gaps": gaps, "plugin_rows": counts, "bits": prepared["bits"]}

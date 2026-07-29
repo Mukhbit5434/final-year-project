@@ -37,7 +37,8 @@ def sample_parts():
 
     nproc = len(pslist)
     malfind_fields, unknown = ex.from_malfind(malfind, nproc)
-    parts = [ex.from_pslist(pslist), ex.from_dlllist(dlllist, nproc),
+    parts = [ex.from_pslist(pslist, len(handles), 64),
+             ex.from_dlllist(dlllist, nproc),
              ex.from_handles(handles, nproc), ex.from_ldrmodules(ldrmodules),
              malfind_fields, ex.from_psxview(psxview), ex.from_modules(modules),
              ex.from_svcscan(svcscan), ex.from_callbacks(callbacks)]
@@ -93,11 +94,28 @@ def test_process_and_dll_counts():
     assert v["dlllist.avg_dlls_per_proc"] == pytest.approx(20.0)
 
 
-def test_nprocs64bit_counts_non_wow64_processes():
+def test_nprocs64bit_counts_non_wow64_processes_on_a_64bit_kernel():
     # Constant 0 in training because the dataset came off a 32-bit VM. Emitted
     # honestly anyway; the OOD check is what covers the resulting out-of-range
     # value on a modern host.
     assert values()["pslist.nprocs64bit"] == 2
+
+
+def test_nprocs64bit_is_zero_on_a_32bit_kernel():
+    # x86 Windows reports Wow64=False for every process because there is no
+    # WOW64 layer, so counting !Wow64 would call all 78 of them 64-bit.
+    rows = [{"PID": 4, "PPID": 0, "Threads": 10, "Wow64": False},
+            {"PID": 8, "PPID": 4, "Threads": 10, "Wow64": False}]
+    assert ex.from_pslist(rows, 100, 32)["pslist.nprocs64bit"] == 0.0
+    assert ex.from_pslist(rows, 100, 64)["pslist.nprocs64bit"] == 2.0
+
+
+def test_avg_handlers_uses_the_handles_plugin_not_the_pslist_column():
+    # Vol3 leaves pslist's Handles column unpopulated on most builds, which
+    # silently produced 0.0 for this feature against a training floor of 50.4.
+    rows = [{"PID": 4, "PPID": 0, "Threads": 10}, {"PID": 8, "PPID": 4, "Threads": 10}]
+    out = ex.from_pslist(rows, 900, 64)
+    assert out["pslist.avg_handlers"] == pytest.approx(450.0)
 
 
 def test_handle_types_are_counted_and_port_is_zero():
