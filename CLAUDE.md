@@ -33,13 +33,39 @@ They are separate on purpose.
 Both models are trained, validated, and saved. The full training history, decisions,
 and investigations are settled. Key facts you must not contradict:
 
+The group-aware split recorded in `models/memory/metadata.json` (StratifiedGroupKFold
+grouped by source sample) is **vindicated by the paper**: §4.2 confirms 10 dumps were
+captured per malware sample at 15-second intervals, so a random split would have leaked
+near-identical sibling dumps across the train/test boundary.
+
 **Memory pipeline** — trained on CIC-MalMem-2022 (58,062 rows after dedup, 55
 features, 50/50 balanced). Shipped model is **XGBoost**. Test set: ROC-AUC 1.0000,
 FPR 0.0000, FNR 0.0000. That perfect score was investigated (leakage check →
-dominant-feature ablation → univariate sweep) and traced to genuine dataset-level
-saturation — 21 of 55 features individually exceed 0.95 AUC. It is a documented
-property of CIC-MalMem-2022, not a bug. Do not "fix" it. Do not present it as
-exceptional model quality anywhere in the UI or reports.
+dominant-feature ablation → univariate sweep) and traced to dataset-level
+saturation — 21 of 55 features individually exceed 0.95 AUC. Do not "fix" it. Do
+not present it as exceptional model quality anywhere in the UI or reports.
+
+**The root cause is now known, from the source paper.** Carrier, Victor, Tekeoglu
+& Lashkari, *Detecting Obfuscated Malware using Memory Feature Engineering*,
+ICISSP 2022, DOI 10.5220/0010908200003120. Section 4.2: the authors captured
+2,916 malware samples × 10 dumps ≈ 29,160 **real** malicious captures, then
+**balanced the benign class to 29,298 using SMOTE oversampling**. A substantial
+part of the benign half is interpolated, not captured.
+
+SMOTE interpolates between neighbouring seed samples, so synthetic points are
+smoother, tighter, and strictly inside the convex hull of their seeds — they
+cannot exceed the seed range. That single fact explains everything this project
+spent five investigation rounds on:
+
+- the 1.0000 test AUC and 21/55 univariate separability — the model partly learned
+  to separate *real capture* from *interpolated point*, which is trivially easy
+- the compressed feature ranges (`svcscan.nservices` 195–395, `modules.nmodules`
+  137–138) — synthetic points cannot widen a range
+- why every real capture reads as out-of-distribution, regardless of OS
+
+This is **unfixable from our side** and it supersedes the earlier
+"OS-generation difference" and "differently configured VMs" explanations. Neither
+was right.
 
 **Disk pipeline** — trained on full EMBER 2018 (600,000 labeled train rows,
 200,000 test rows). Shipped model is **LightGBM**, using 150 features selected from
@@ -252,11 +278,20 @@ These are dead or near-dead inputs. They are documented here so nobody "fixes" t
 
 | Field | Training value | Reality |
 |---|---|---|
-| `pslist.nprocs64bit` | always 0 | The dataset was captured on a 32-bit VM. **Emit the honest value from the dump anyway** (~40 on a modern x64 host) — hard rule 8 governs. The OOD check in 5.4 is what covers the resulting out-of-range input. |
+| `pslist.nprocs64bit` | always 0 | Counts **WOW64** processes, not 64-bit ones — see 5.7. Zero across the released data means no 32-bit process was running on the x64 capture VM. Emit what VolMemLyzer emits. |
 | `handles.nport` | always 0 | The `Port` object type is XP/2003-era and does not exist on modern Windows. Emitting 0 is both correct and training-consistent. |
-| `svcscan.interactive_process_services` | always 0 | Vol3 does expose `SERVICE_INTERACTIVE_PROCESS`, so a real dump may produce a nonzero value the model has never seen. Emit honestly. |
+| `svcscan.interactive_process_services` | always 0 | **Structurally zero by construction.** VolMemLyzer compares `ServiceType == 'SERVICE_INTERACTIVE_PROCESS'` exactly, and Volatility only ever renders interactive services as a combined flag, so the comparison can never match. Reproduce the exact comparison; do not "fix" it with a substring match. |
 | `callbacks.ngeneric` | always 8.0 | Constant, not zero. The model learned nothing from it. |
-| `modules.nmodules` | ∈ {137, 138} | A single OS build. A real dump gives ~400. |
+| `modules.nmodules` | ∈ {137, 138} | Range compression from SMOTE (Section 2), not a single OS build. A real dump gives ~163–400. |
+
+**The capture environment is documented, not inferred** — ICISSP 2022 §4.3:
+**64-bit Windows 10**, 2 GB RAM, Oracle VirtualBox, snapshots taken externally via
+the VirtualBox VM manager, Volatility 2.6, features extracted on a Kali Linux host.
+
+Earlier drafts of this file inferred a *32-bit* capture VM from
+`pslist.nprocs64bit == 0`, and then floated a Windows 7 hypothesis on top of it.
+**Both were wrong and are deleted.** The feature counts WOW64 processes, so zero is
+what an x64 VM with no 32-bit processes produces. Do not reintroduce either claim.
 
 ### 5.4a What the memory model actually keys on — measured
 
@@ -273,23 +308,68 @@ Four features carry essentially the whole decision:
 An 80× cliff after the fourth. Three of the four are **counts of installed services and
 drivers** — properties of how a machine is *configured*, not of what malware *does* — and
 their class medians differ by 1–6 while separating almost perfectly. That only happens
-when the two classes are tight clusters at slightly different values, i.e. the benign and
-malicious captures came from differently configured VMs and the model learned to tell the
-**VMs** apart.
+when the two classes are tight clusters at slightly different values.
+
+**Section 2 explains why.** The malicious half is real captures; the benign half is
+largely SMOTE interpolation. Interpolated points cluster tightly around their seeds, so
+the classes separate cleanly on service counts whose medians differ by one or two. The
+model is substantially learning *real capture vs synthetic point*, not *benign vs
+malicious*. An earlier draft blamed "differently configured VMs" — that was a guess and
+it was wrong.
 
 Meanwhile the genuinely behavioural features overlap almost completely between classes:
 `malfind.ninjections` 4 vs 3 (100% overlap), `ldrmodules.not_in_load` 74 vs 46 (99.9%),
 `psxview.not_in_pslist` 0 vs 1 (100%). `malfind.ninjections` is actually *higher* in the
 benign group.
 
-And every dominant feature is out of range on a modern host: `svcscan.nservices` trains on
-[195, 395] where real Win10/11 gives ~600; `kernel_drivers` [108, 222] vs ~350;
-`shared_process_services` [65, 118] vs ~180; `handles.nmutant` [168, 565] vs ~900.
+And every dominant feature is out of range on a modern host. Measured on a Windows 10
+capture after deduplication: `svcscan.nservices` trains on [195, 395], observed 594;
+`kernel_drivers` [108, 222] vs 290; `shared_process_services` [65, 118] vs 216;
+`handles.nmutant` [168, 565] vs 616.
+
+**Not all of that gap is behavioural.** `handles.nmutant` is 7.90 per process against a
+training rate of 7.61 — a 4% difference. It reads out-of-range only because the capture
+ran 78 processes against a training mean of 41.5. Report scale effects as scale effects;
+a raw range check alone cannot tell "bigger machine" from "different behaviour".
 
 **Consequence: on a real dump the memory model's probability is not trustworthy.** This is
 the dataset artifact `models/memory/metadata.json` already warns about, now with a
 mechanism. It is not fixable here — retraining is out of scope (hard rule 7) — so the
 memory report must be **evidence-led, not verdict-led**. See 9.6.
+
+### 5.7 Match VolMemLyzer's semantics, bugs included
+
+The reference implementation is public and settles most of what Section 5.2 had to infer.
+Read it before changing any mapping: `ahlashkari/VolMemLyzer`, tag **V1.0.0**,
+`VolatilityFeatureExtractor.py`.
+
+**V1 is authoritative even though the paper cites V2.** V2's svcscan features are named
+differently (`nServices`, `nUniqueServ`, `State_Run`, `Type_Kernel_Driver`) and it has no
+psxview at all. The released CIC-MalMem-2022 columns match V1. Where V1 and V2 agree the
+point is doubly confirmed; where they differ, follow V1.
+
+| Feature | Reference implementation | Trap |
+|---|---|---|
+| `pslist.nprocs64bit` | `sum(p['Wow64'])` (V2: `count(Wow64 == True)`) | Counts **WOW64** — 32-bit processes on a 64-bit kernel. Both versions comment it as "number of 64-bit processes". It is the opposite. |
+| `pslist.avg_handlers` | `sum(p['Hnds']) / len(procs)` | volatility3 leaves `Hnds` unpopulated; using it directly yields 0.0 against a training floor of 50.4. |
+| `dlllist.avg_dlls_per_proc` | `len(dlllist) / len(set(Pid))` | Divide by processes **in dlllist**, not `pslist.nproc`. |
+| `handles.avg_handles_per_proc` | `len(handles) / len(set(Pid))` | Divide by processes **holding handles**, not `pslist.nproc`. Resolves the 5.2 ambiguity. |
+| `svcscan.*` type counts | `ServiceType == '...'` exact | Substring matching turns combined flags into false positives and un-zeroes `interactive_process_services`. |
+| `svcscan.nservices` | `len(svcscan)` — **no state filter** | `nactive` is the separate running count. Confirmed twice: the source, and `nactive < nservices` in 5,000 of 5,000 reference rows (ratio p5–p95 0.303–0.321). Filtering to running undershoots every range. |
+| `callbacks.nanonymous` | `Module == 'UNKNOWN'` exact | Counting blank modules too inflates it. |
+| `ldrmodules.*_avg` | `÷ len(ldrmodules)` | Confirmed — matches the inference in 5.2. |
+| `psxview.*_false_avg` | `÷ len(psxview)` | Confirmed. |
+| `malfind.uniqueInjections` | `len(malfind) / len(set(Pid))` | Confirmed. |
+| `malfind.protection` | numeric `Protection:` parsed from Vol2 VAD flags | Confirms the protection **index** reading in 5.2. |
+| `pslist.nppid` | `len(set(PPID))` | Confirmed. |
+
+**Deduplicate svcscan before counting.** volatility3 re-emits the same service record once
+per VAD scan hit — measured 1,311 rows for 594 services, some 12× at an identical offset,
+with Type/State/Binary identical across every duplicate group. Its internal `seen` guard
+compares tuples holding `UnreadableValue`, which never compare equal. Deduplicate on
+`Order`, which is unique per record. VolMemLyzer V2 added `nUniqueServ` for the same
+reason. This is worth ~2.2×; the residual gap after it is the SMOTE range compression of
+Section 2, not a tool artifact.
 
 ### 5.4 Out-of-distribution check — MANDATORY
 
@@ -801,12 +881,19 @@ scored. Do not make this a black box on top of a black box.
 7. **Appendix** — full feature contribution list, environment/library versions,
    model metadata
 
-### 9.6 Memory reports are evidence-led, not verdict-led
+### 9.6 The memory pipeline is a forensic triage engine, not a malware detector
 
-Because of 5.4a the memory model's probability is weak evidence on any dump that is not
-from the CIC-MalMem capture VM. The extracted Volatility observations are **not** weak —
-they are direct measurements of the dump and are true regardless of what the model says.
-So the memory report inverts the usual order.
+**Position it that way in the UI, the reports, and the write-up.** It is an automated
+forensic triage engine with a confidence-gated ML layer. The disk pipeline is unchanged —
+validated against the official EMBER baseline, and it remains the primary detection
+capability.
+
+The justification is Section 2: the benign half of CIC-MalMem-2022 is largely SMOTE
+interpolation, so the model's probability is weak evidence on any real capture. The
+Volatility measurements are **not** weak — injected regions, loader-list anomalies,
+enumeration discrepancies, registered services, kernel callbacks are direct observations
+of the dump under analysis. They carry standalone forensic value and do not depend on the
+training distribution at all. So the memory report inverts the usual order.
 
 **Lead with what was observed.** Injected executable regions and the processes holding
 them; modules in memory but absent from the PEB loader lists; processes visible to one
@@ -826,6 +913,25 @@ range, print that plainly instead of a confident percentage:
 hidden modules plus injected memory is High because of what was found. The probability
 may contribute, but it must never be the sole driver. Disk severity is unaffected and
 stays verdict-led — that pipeline has no equivalent problem.
+
+**Report the findings against a clean baseline, never as bare counts.** These artifacts
+occur on healthy Windows systems: `malfind` flags the RWX memory that JIT compilers,
+browsers and .NET allocate legitimately; `ldrmodules` mismatches happen during ordinary
+DLL loading; `psxview` discrepancies are usually terminated processes that psscan still
+finds in freed pool. A clean Windows 10 capture produced 23 injected regions, 230 modules
+absent from loader lists, 9 processes missing from pslist and 267 kernel callbacks — none
+of it malicious. Printed as raw counts an analyst reads that as compromise. Word it
+relative to baseline ("23 injected regions, consistent with a healthy system") and carry a
+standing note that these indicators matter only when substantially elevated or seen in
+combination.
+
+**One baseline capture is not a threshold, and the numbers say so.** Across 5,000 captures
+of the *same* machine in the reference data, `malfind.ninjections` spans p5 2 → p95 16,
+`malfind.commitCharge` spans 2 → 403, and `psxview.not_in_pslist` spans 0 → 8. Two random
+captures of the same clean machine differ by more than 2× in 25% of pairs for
+`ninjections`, 34% for `commitCharge` and 74% for `not_in_pslist`. A baseline supports
+"right order of magnitude"; it cannot support a numeric cut-off. `callbacks.ncallbacks` is
+the one exception, stable to within 2%.
 
 This is not a workaround for a broken model. Evidence-first is how memory forensics is
 actually practised, and it makes the report useful even when the model is not.
@@ -1025,6 +1131,14 @@ a tutorial generator. Concretely:
 22. Never headline a memory report with the model probability. Memory reports lead with
     observed Volatility findings; the score is secondary and carries the OOD count with
     it (Sections 5.4a and 9.6).
+23. **Exactly 55 memory features, in `feature_list.json` order. Never 58.** The ICISSP
+    2022 paper's Table 1 lists 58 including an Apihooks group (`nhooks`, `nhookInLine`,
+    `nhooksInUsermode`); the CIC team dropped those three from the released CSV and the
+    shipped model has never seen them. The extractor must never emit them.
+24. Never "fix" a VolMemLyzer quirk. Reproduce its comparisons exactly, bugs included —
+    notably the exact-equality service-type match that keeps
+    `svcscan.interactive_process_services` structurally zero (Section 5.7). Matching the
+    training distribution beats being right in the abstract.
 
 ---
 

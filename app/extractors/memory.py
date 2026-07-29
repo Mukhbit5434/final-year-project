@@ -54,6 +54,12 @@ PLUGINS = {
 }
 
 
+# The ICISSP 2022 paper's Table 1 lists 58 features including an Apihooks group
+# (nhooks, nhookInLine, nhooksInUsermode). The CIC team dropped those three from
+# the released CSV, so the shipped model has never seen them. 55, never 58.
+FEATURE_COUNT = 55
+
+
 class ExtractionError(RuntimeError):
     pass
 
@@ -215,41 +221,41 @@ def _ratio(numerator, denominator):
     return float(numerator) / denominator if denominator else 0.0
 
 
-def from_pslist(rows, nhandles, bits):
+def from_pslist(rows, nhandles):
     n = len(rows)
     threads = [t for t in (r.get("Threads") for r in rows) if isinstance(t, int)]
     return {
         "pslist.nproc": float(n),
-        # Distinct parent PIDs. Mean 14.7 against nproc 41.5 in training fits this
-        # reading; "processes with a live parent" also fits and is not separable
-        # from the reference data.
         "pslist.nppid": float(len({r.get("PPID") for r in rows})),
         "pslist.avg_threads": _ratio(sum(threads), len(threads)),
-        # A process is 64-bit only on a 64-bit kernel; Wow64 is False for every
-        # process on x86, so counting !Wow64 there would report every process as
-        # 64-bit. Training saw 0 throughout because the capture VM was x86.
-        "pslist.nprocs64bit": (_count(rows, lambda r: r.get("Wow64") is False)
-                               if bits == 64 else 0.0),
-        # Vol3's pslist leaves Handles unpopulated on most builds, so this shares
-        # handles.nhandles/nproc with handles.avg_handles_per_proc. CLAUDE.md 5.2:
-        # the two are not independently derivable and both are disclosed.
+        # Counts WOW64 processes - 32-bit processes on a 64-bit kernel - despite
+        # the name. VolMemLyzer V1 sums the Wow64 column, V2 counts Wow64 == True;
+        # both label it "number of 64-bit processes" and both are the opposite of
+        # that. Matching the reference implementation matters more than the name.
+        "pslist.nprocs64bit": _count(rows, lambda r: r.get("Wow64") is True),
+        # VolMemLyzer divides pslist's own Hnds column by nproc. volatility3
+        # leaves Hnds unpopulated, so the numerator comes from the handles plugin
+        # instead; the denominator still differs from avg_handles_per_proc below,
+        # which is why both stay disclosed as inferred.
         "pslist.avg_handlers": _ratio(nhandles, n),
     }
 
 
-def from_dlllist(rows, nproc):
+def from_dlllist(rows):
     n = len(rows)
+    # len(dlllist) / len(set(Pid)) - the processes that appear in dlllist, not
+    # pslist.nproc. The two differ whenever a process has no readable module list.
     return {
         "dlllist.ndlls": float(n),
-        # Confirmed exact against the reference data - median relative error
-        # 2.8e-8, i.e. float32 rounding and nothing else.
-        "dlllist.avg_dlls_per_proc": _ratio(n, nproc),
+        "dlllist.avg_dlls_per_proc": _ratio(n, len({r.get("PID") for r in rows})),
     }
 
 
-def from_handles(rows, nproc):
+def from_handles(rows):
     out = {"handles.nhandles": float(len(rows)),
-           "handles.avg_handles_per_proc": _ratio(len(rows), nproc),
+           # Likewise divided by the processes holding handles, not by nproc.
+           "handles.avg_handles_per_proc": _ratio(
+               len(rows), len({r.get("PID") for r in rows})),
            # The Port object type is XP/2003 era and absent from modern Windows.
            # Training saw 0 everywhere too, so this costs nothing.
            "handles.nport": 0.0}
@@ -315,9 +321,35 @@ def from_modules(rows):
     return {"modules.nmodules": float(len(rows))}
 
 
+def dedupe_services(rows):
+    """volatility3's svcscan re-emits the same record once per VAD hit.
+
+    It scans every process's address space for the `serH` tag and re-traverses
+    the service list at each hit; its `seen` guard compares tuples containing
+    renderer objects such as UnreadableValue, which never compare equal, so the
+    guard does nothing. Measured on a Windows 10 capture: 1,311 rows for 594
+    services, some repeated 12 times at the same offset, with Type/State/Binary
+    identical across every duplicate group. VolMemLyzer V2 added an
+    `svcscan.nUniqueServ` feature for the same reason.
+
+    Order is the service's index in the list and is unique per record.
+    """
+    by_order = {}
+    for r in rows:
+        by_order.setdefault(r.get("Order"), r)
+    return list(by_order.values())
+
+
 def from_svcscan(rows):
-    def typed(fragment):
-        return _count(rows, lambda r: fragment in str(r.get("Type") or ""))
+    # Exact equality, not substring: VolMemLyzer compares
+    # ServiceType == 'SERVICE_KERNEL_DRIVER' and friends. Volatility renders
+    # interactive services only as combined flags
+    # ("SERVICE_WIN32_OWN_PROCESS|SERVICE_INTERACTIVE_PROCESS"), so the bare
+    # comparison never matches and interactive_process_services is structurally
+    # 0 - which is exactly why it is constant 0 across the whole training set.
+    # A substring match would "fix" that and put us off-distribution.
+    def typed(name):
+        return _count(rows, lambda r: str(r.get("Type")) == name)
 
     return {
         "svcscan.nservices": float(len(rows)),
@@ -326,16 +358,16 @@ def from_svcscan(rows):
         "svcscan.process_services": typed("SERVICE_WIN32_OWN_PROCESS"),
         "svcscan.shared_process_services": typed("SERVICE_WIN32_SHARE_PROCESS"),
         "svcscan.interactive_process_services": typed("SERVICE_INTERACTIVE_PROCESS"),
-        "svcscan.nactive": _count(rows, lambda r: "RUNNING" in str(r.get("State") or "")),
+        "svcscan.nactive": _count(rows, lambda r: str(r.get("State")) == "SERVICE_RUNNING"),
     }
 
 
 def from_callbacks(rows):
     return {
         "callbacks.ncallbacks": float(len(rows)),
-        "callbacks.nanonymous": _count(
-            rows, lambda r: not str(r.get("Module") or "").strip()
-            or str(r.get("Module")).upper() in ("UNKNOWN", "N/A")),
+        # VolMemLyzer: Module == 'UNKNOWN' exactly. Counting blanks and 'N/A' as
+        # anonymous too would inflate this above what the model was fitted on.
+        "callbacks.nanonymous": _count(rows, lambda r: str(r.get("Module")) == "UNKNOWN"),
         # Constant at 8.0 across every training row, so the model never split on
         # it. Emitted honestly regardless; the value cannot change a prediction.
         "callbacks.ngeneric": _count(
@@ -372,6 +404,10 @@ def assemble(parts, feature_names, unknown_protection=()):
     distribution check catches a wholesale scramble but only 5 of 54 adjacent
     swaps, so a two-field transposition here would otherwise be invisible.
     """
+    if len(feature_names) != FEATURE_COUNT:
+        raise ExtractionError(
+            f"expected {FEATURE_COUNT} feature names, got {len(feature_names)}")
+
     values = {}
     for part in parts:
         values.update(part)
@@ -414,14 +450,17 @@ def extract(dump, feature_names, progress=None):
         _, rows = run_plugin(dump, plugin, catalog, prepared)
         collected[key] = rows
 
+    raw_services = len(collected["svcscan"])
+    collected["svcscan"] = dedupe_services(collected["svcscan"])
+
     nproc = len(collected["pslist"])
     nhandles = len(collected["handles"])
     malfind_fields, unknown = from_malfind(collected["malfind"], nproc)
 
     parts = [
-        from_pslist(collected["pslist"], nhandles, prepared["bits"]),
-        from_dlllist(collected["dlllist"], nproc),
-        from_handles(collected["handles"], nproc),
+        from_pslist(collected["pslist"], nhandles),
+        from_dlllist(collected["dlllist"]),
+        from_handles(collected["handles"]),
         from_ldrmodules(collected["ldrmodules"]),
         malfind_fields,
         from_psxview(collected["psxview"]),
@@ -431,4 +470,6 @@ def extract(dump, feature_names, progress=None):
     ]
     vec, gaps = assemble(parts, feature_names, unknown)
     counts = {k: len(v) for k, v in collected.items()}
-    return {"vec": vec, "gaps": gaps, "plugin_rows": counts, "bits": prepared["bits"]}
+    return {"vec": vec, "gaps": gaps, "plugin_rows": counts, "bits": prepared["bits"],
+            "svcscan_raw_rows": raw_services,
+            "svcscan_duplicate_ratio": raw_services / max(len(collected["svcscan"]), 1)}

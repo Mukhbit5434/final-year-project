@@ -12,9 +12,9 @@ def sample_parts():
     pslist = [{"PID": 4, "PPID": 0, "Threads": 100, "Handles": 2000, "Wow64": False},
               {"PID": 88, "PPID": 4, "Threads": 20, "Handles": 400, "Wow64": True},
               {"PID": 92, "PPID": 4, "Threads": 10, "Handles": 200, "Wow64": False}]
-    dlllist = [{"PID": 4}] * 60
-    handles = ([{"Type": "File"}] * 5 + [{"Type": "Key"}] * 3 +
-               [{"Type": "Mutant"}] * 2 + [{"Type": "Section"}])
+    dlllist = [{"PID": 4}] * 40 + [{"PID": 88}] * 20
+    handles = ([{"PID": 4, "Type": "File"}] * 5 + [{"PID": 4, "Type": "Key"}] * 3 +
+               [{"PID": 88, "Type": "Mutant"}] * 2 + [{"PID": 88, "Type": "Section"}])
     ldrmodules = [{"InLoad": True, "InInit": True, "InMem": True},
                   {"InLoad": False, "InInit": False, "InMem": True},
                   {"InLoad": True, "InInit": False, "InMem": True},
@@ -37,9 +37,9 @@ def sample_parts():
 
     nproc = len(pslist)
     malfind_fields, unknown = ex.from_malfind(malfind, nproc)
-    parts = [ex.from_pslist(pslist, len(handles), 64),
-             ex.from_dlllist(dlllist, nproc),
-             ex.from_handles(handles, nproc), ex.from_ldrmodules(ldrmodules),
+    parts = [ex.from_pslist(pslist, len(handles)),
+             ex.from_dlllist(dlllist),
+             ex.from_handles(handles), ex.from_ldrmodules(ldrmodules),
              malfind_fields, ex.from_psxview(psxview), ex.from_modules(modules),
              ex.from_svcscan(svcscan), ex.from_callbacks(callbacks)]
     return parts, unknown
@@ -91,31 +91,30 @@ def test_process_and_dll_counts():
     assert v["pslist.nppid"] == 2
     assert v["pslist.avg_threads"] == pytest.approx(130 / 3)
     assert v["dlllist.ndlls"] == 60
-    assert v["dlllist.avg_dlls_per_proc"] == pytest.approx(20.0)
 
 
-def test_nprocs64bit_counts_non_wow64_processes_on_a_64bit_kernel():
-    # Constant 0 in training because the dataset came off a 32-bit VM. Emitted
-    # honestly anyway; the OOD check is what covers the resulting out-of-range
-    # value on a modern host.
-    assert values()["pslist.nprocs64bit"] == 2
+def test_dll_average_divides_by_processes_present_in_dlllist():
+    # VolMemLyzer: len(dlllist) / len(set(Pid)). Two PIDs appear, not the three
+    # in pslist, so the denominator is 2.
+    assert values()["dlllist.avg_dlls_per_proc"] == pytest.approx(30.0)
 
 
-def test_nprocs64bit_is_zero_on_a_32bit_kernel():
-    # x86 Windows reports Wow64=False for every process because there is no
-    # WOW64 layer, so counting !Wow64 would call all 78 of them 64-bit.
-    rows = [{"PID": 4, "PPID": 0, "Threads": 10, "Wow64": False},
-            {"PID": 8, "PPID": 4, "Threads": 10, "Wow64": False}]
-    assert ex.from_pslist(rows, 100, 32)["pslist.nprocs64bit"] == 0.0
-    assert ex.from_pslist(rows, 100, 64)["pslist.nprocs64bit"] == 2.0
+def test_handle_average_divides_by_processes_holding_handles():
+    # 11 handles across 2 PIDs, not the 3 processes pslist reports.
+    assert values()["handles.avg_handles_per_proc"] == pytest.approx(11 / 2)
+
+
+def test_nprocs64bit_counts_wow64_processes_despite_its_name():
+    # VolMemLyzer V1 sums the Wow64 column and V2 counts Wow64 == True. Both
+    # label it "number of 64-bit processes"; both count 32-bit-on-64-bit.
+    assert values()["pslist.nprocs64bit"] == 1
 
 
 def test_avg_handlers_uses_the_handles_plugin_not_the_pslist_column():
     # Vol3 leaves pslist's Handles column unpopulated on most builds, which
     # silently produced 0.0 for this feature against a training floor of 50.4.
     rows = [{"PID": 4, "PPID": 0, "Threads": 10}, {"PID": 8, "PPID": 4, "Threads": 10}]
-    out = ex.from_pslist(rows, 900, 64)
-    assert out["pslist.avg_handlers"] == pytest.approx(450.0)
+    assert ex.from_pslist(rows, 900)["pslist.avg_handlers"] == pytest.approx(450.0)
 
 
 def test_handle_types_are_counted_and_port_is_zero():
@@ -179,8 +178,41 @@ def test_svcscan_and_callback_counts():
     assert v["svcscan.nactive"] == 3
     assert v["svcscan.interactive_process_services"] == 0
     assert v["callbacks.ncallbacks"] == 3
-    assert v["callbacks.nanonymous"] == 2
+    # Module == 'UNKNOWN' exactly; the blank-module row is not anonymous.
+    assert v["callbacks.nanonymous"] == 1
     assert v["callbacks.ngeneric"] == 1
+
+
+def test_service_types_match_exactly_never_by_substring():
+    # Volatility only ever renders interactive services as a combined flag, so
+    # the bare comparison cannot match - which is precisely why the feature is
+    # constant 0 across the whole training set. A substring match would produce
+    # a nonzero value and push us off-distribution.
+    rows = [{"Type": "SERVICE_WIN32_OWN_PROCESS|SERVICE_INTERACTIVE_PROCESS",
+             "State": "SERVICE_RUNNING"},
+            {"Type": "SERVICE_WIN32_OWN_PROCESS", "State": "SERVICE_STOPPED"}]
+    out = ex.from_svcscan(rows)
+    assert out["svcscan.interactive_process_services"] == 0
+    assert out["svcscan.process_services"] == 1
+
+
+def test_duplicate_service_records_are_collapsed_by_order():
+    rows = [{"Order": 1, "Name": "Wlansvc", "Type": "SERVICE_KERNEL_DRIVER"},
+            {"Order": 1, "Name": "Wlansvc", "Type": "SERVICE_KERNEL_DRIVER"},
+            {"Order": 1, "Name": "Wlansvc", "Type": "SERVICE_KERNEL_DRIVER"},
+            {"Order": 2, "Name": "WinRM", "Type": "SERVICE_KERNEL_DRIVER"}]
+    out = ex.dedupe_services(rows)
+    assert len(out) == 2
+    assert ex.from_svcscan(out)["svcscan.nservices"] == 2
+
+
+def test_feature_count_is_locked_at_55():
+    # The ICISSP paper lists 58 including three apihooks features; the released
+    # dataset has 55 and the model has never seen the other three.
+    assert ex.FEATURE_COUNT == 55
+    assert len(NAMES) == 55
+    with pytest.raises(ex.ExtractionError, match="55 feature names"):
+        ex.assemble(*sample_parts()[:1], NAMES + ["apihooks.nhooks"])
 
 
 def test_gaps_separate_missing_fields_from_inferred_ones():
@@ -207,7 +239,8 @@ def test_the_gap_list_is_never_empty():
 
 
 def test_division_by_zero_yields_zero_not_a_crash():
-    assert ex.from_dlllist([], 0)["dlllist.avg_dlls_per_proc"] == 0.0
+    assert ex.from_dlllist([])["dlllist.avg_dlls_per_proc"] == 0.0
+    assert ex.from_handles([])["handles.avg_handles_per_proc"] == 0.0
     assert ex.from_ldrmodules([])["ldrmodules.not_in_load_avg"] == 0.0
     assert ex.from_psxview([])["psxview.not_in_pslist_false_avg"] == 0.0
 
