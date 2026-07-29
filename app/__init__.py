@@ -53,6 +53,14 @@ def create_app(config=Config):
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
 
+    if app.config.get("RECOVER_ORPHANS", True):
+        from . import jobs
+        try:
+            jobs.recover_orphans(app)
+        except Exception:
+            # A fresh checkout has no tables until migrations run.
+            app.logger.debug("orphan recovery skipped", exc_info=True)
+
     @app.errorhandler(413)
     def too_large(_e):
         gb = app.config["MAX_CONTENT_LENGTH"] // 1024 ** 3

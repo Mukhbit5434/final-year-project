@@ -2,7 +2,7 @@ from flask import (Blueprint, abort, current_app, flash, redirect,
                    render_template, request, url_for)
 from flask_login import current_user, login_required
 
-from . import artifacts, limiter
+from . import artifacts, jobs as job_queue, limiter
 from .audit import log
 from .db import db
 from .forms import ConfirmTypeForm, UploadForm
@@ -32,7 +32,20 @@ def jobs():
 @login_required
 def job_detail(job_id):
     job = _owned(job_id)
-    return render_template("job_detail.html", job=job)
+    results = sorted(job.results, key=lambda r: -r.probability)
+    return render_template("job_detail.html", job=job, results=results)
+
+
+@bp.route("/jobs/<int:job_id>/status")
+@login_required
+def job_status(job_id):
+    job = _owned(job_id)
+    # Counts only. The per-file table can run to hundreds of rows and the page
+    # polls this every few seconds until the job settles.
+    return {"id": job.id, "status": job.status, "error": job.error,
+            "done": job.done, "duration": job.duration,
+            "files_scanned": job.files_scanned, "files_flagged": job.files_flagged,
+            "ood_count": job.ood_count, "results": len(job.results)}
 
 
 @bp.route("/upload", methods=["GET", "POST"])
@@ -77,7 +90,9 @@ def upload():
               "warning")
         return redirect(url_for("main.confirm_type", job_id=job.id))
 
-    flash(f"Uploaded and queued as a {detected} artifact.", "success")
+    job_queue.start(current_app._get_current_object(), job.id)
+    flash(f"Uploaded and queued as a {detected} artifact. Analysis takes minutes, "
+          "not seconds.", "success")
     return redirect(url_for("main.job_detail", job_id=job.id))
 
 
@@ -95,6 +110,7 @@ def confirm_type(job_id):
         job.status = PENDING
         log("artifact_type_set", job=job, detail=job.artifact)
         db.session.commit()
+        job_queue.start(current_app._get_current_object(), job.id)
         flash(f"Queued as a {job.artifact} artifact.", "success")
         return redirect(url_for("main.job_detail", job_id=job.id))
 

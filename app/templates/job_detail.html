@@ -43,7 +43,81 @@
   </div>
 </div>
 
-<p class="text-body-secondary small mt-4">
-  Results appear here once analysis runs.
-</p>
+{% if job.artifact == 'memory' and job.ood_count is not none %}
+<div class="card mt-4">
+  <div class="card-header">Extraction scope</div>
+  <div class="card-body">
+    <p class="mb-2">
+      {{ job.ood_count }} of 55 features fall outside the range observed in the
+      training data. This verdict is extrapolation and should be treated as
+      low-confidence.
+    </p>
+    {% if job.extraction_gaps %}
+      <p class="text-body-secondary small mb-0">
+        {{ job.extraction_gaps | selectattr('confidence', 'equalto', 'missing') | list | length }}
+        features could not be produced by Volatility 3 and were recorded as gaps;
+        {{ job.extraction_gaps | selectattr('confidence', 'equalto', 'inferred') | list | length }}
+        more use a derivation reconstructed from the reference data.
+      </p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if results %}
+<h2 class="h5 mt-4">
+  {{ results | length }} result{{ '' if results|length == 1 else 's' }}
+  {%- if job.files_scanned %}, {{ '{:,}'.format(job.files_scanned) }} files examined{% endif %}
+</h2>
+<div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead>
+      <tr><th>Prob.</th><th>Verdict</th><th>Path</th><th>Size</th><th>SHA-256</th></tr>
+    </thead>
+    <tbody>
+      {% for r in results %}
+      <tr>
+        <td class="mono">{{ '%.4f'|format(r.probability) }}</td>
+        <td>{{ 'flagged' if r.malicious else 'clean' }}</td>
+        <td class="small">{{ r.path or 'whole dump' }}</td>
+        <td class="mono small">{{ '{:,}'.format(r.file_size) if r.file_size else '—' }}</td>
+        <td class="hash">{{ r.file_sha256 or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% elif job.done %}
+  <p class="text-body-secondary small mt-4">No results recorded.</p>
+{% else %}
+  <p class="text-body-secondary small mt-4" id="waiting">
+    Analysis runs in the background and takes minutes, not seconds. This page
+    refreshes itself.
+  </p>
+{% endif %}
+
+{% if job.skipped %}
+<details class="mt-4">
+  <summary>{{ job.skipped | length }} file(s) skipped</summary>
+  <ul class="small text-body-secondary mt-2">
+    {% for s in job.skipped[:50] %}
+      <li><span class="mono">{{ s.path }}</span> — {{ s.reason }}</li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if not job.done %}
+<script>
+const url = "{{ url_for('main.job_status', job_id=job.id) }}";
+setInterval(async () => {
+  const r = await fetch(url);
+  if (!r.ok) return;
+  const j = await r.json();
+  if (j.done) location.reload();
+}, 5000);
+</script>
+{% endif %}
 {% endblock %}

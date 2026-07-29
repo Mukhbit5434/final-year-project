@@ -35,6 +35,7 @@ class Config:
     EXECUTOR_PROPAGATE_EXCEPTIONS = False
 
     LOAD_MODELS = True
+    RECOVER_ORPHANS = True
 
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
@@ -50,6 +51,12 @@ class TestConfig(Config):
     # Loading two boosters plus 8 MB of reference data on every app fixture would
     # dominate the suite. The inference tests load them once themselves.
     LOAD_MODELS = False
+    # The tables do not exist until the app fixture creates them.
+    RECOVER_ORPHANS = False
+    # Uploads in tests carry a few hundred fake bytes; dispatching them would
+    # spawn a real process pool and hand volatility a file that is not a dump.
+    # The job-body tests call jobs.run directly instead.
+    DISPATCH_JOBS = False
     # Rate limiting stays on under test. Flask-Limiter's init_app returns early
     # when disabled, so switching it off here would mean never exercising the
     # real code path; the conftest resets the counters between tests instead.
