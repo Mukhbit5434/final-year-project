@@ -1,5 +1,13 @@
 # BUILD PLAN — Automated Malware Analysis System for Disk & Memory Forensics
 
+> **This document is historical.** All ten steps are complete. It is kept for the
+> planning record — the risk analysis and per-step reasoning are still worth reading, but
+> several of its predictions were wrong and are corrected elsewhere: the psxview gap
+> turned out to be 6 features rather than 14, the "differently configured VMs" theory was
+> superseded by SMOTE, the 32-bit dataset inference was wrong, and the x64 automagic
+> branch worked rather than breaking as predicted. **`STATUS.md` is the current state and
+> `CLAUDE.md` is the binding spec.**
+
 Companion to [CLAUDE.md](CLAUDE.md). Planning document only — no code written yet.
 Everything below is grounded in the actual artifacts in this repo, probed before
 planning. Several findings contradict or complete what CLAUDE.md says; those are in

@@ -381,6 +381,12 @@ The reference implementation is public and settles most of what Section 5.2 had 
 Read it before changing any mapping: `ahlashkari/VolMemLyzer`, tag **V1.0.0**,
 `VolatilityFeatureExtractor.py`.
 
+**Two dead ends, recorded so nobody retries them.** Volatility 2 cannot be used as a
+cross-check: the x64 capture is build 19041 and Volatility 2.6.1 (2018) has no profile
+for it, and Vol2 is EOL, Python 2.7 only, and its repository was archived in May 2025.
+And `windows.svclist.SvcList` returns **zero rows** on both sample dumps, so it is not an
+alternative to `svcscan` despite exposing the same columns.
+
 **V1 is authoritative even though the paper cites V2.** V2's svcscan features are named
 differently (`nServices`, `nUniqueServ`, `State_Run`, `Type_Kernel_Driver`) and it has no
 psxview at all. The released CIC-MalMem-2022 columns match V1. Where V1 and V2 agree the
@@ -609,7 +615,9 @@ disk pipeline correctly flags nothing on it and the detection path is never exer
 | `pythonw.exe` | original | 6.480 | 0.0016 | clean |
 | `pythonw.exe` | UPX `-9` | 7.304 | **0.5441** | flagged |
 
-(`notepad.exe` and `calc.exe` will not pack; UPX rejects them.)
+(`notepad.exe` and `calc.exe` will not pack; UPX rejects them.) UPX is not a project
+dependency — fetch the release zip from
+`https://github.com/upx/upx/releases` when this needs reproducing.
 
 **Word this honestly wherever it appears.** A packed benign binary being flagged is a
 **false positive**, not a detection. It happens because EMBER's malicious class is heavily

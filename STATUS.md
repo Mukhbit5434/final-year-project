@@ -63,9 +63,17 @@ set FLASK_APP=wsgi.py
 .venv\Scripts\python run.py                          # http://127.0.0.1:5000
 .venv\Scripts\python -m pytest tests -q
 
+scripts\verify_pipeline.py                           # end-to-end against sample/
 scripts\scan_image.py <image>                        # disk extraction + predictions
 scripts\dump_memory_features.py <dump>               # 55 values vs training ranges
 ```
+
+`verify_pipeline.py` is the one that matters after any change to extraction, inference or
+reporting. It runs whatever is in `sample/` through the real job pipeline, checks the
+mandatory report strings against the rendered PDF, exercises every route, and confirms
+uploaded artifacts stay unreachable. It carries the last-verified numbers inline so drift
+is visible. Unit tests do not catch what this catches — every one of the six bugs below
+came from it.
 
 Run `run.py`, never `python -m flask run` with a module that builds the app at import —
 see CLAUDE.md §10 on Windows spawn.
