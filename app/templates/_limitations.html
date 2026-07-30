@@ -1,0 +1,6 @@
+{% for heading, paragraphs in limitations %}
+  <h3 class="h6 mt-3">{{ heading }}</h3>
+  {% for text in paragraphs %}
+    <p class="text-body-secondary mb-1">{{ text }}</p>
+  {% endfor %}
+{% endfor %}

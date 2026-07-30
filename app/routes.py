@@ -1,3 +1,9 @@
+import csv
+import io
+import json
+from collections import Counter
+from datetime import datetime
+
 from flask import (Blueprint, abort, current_app, flash, redirect,
                    render_template, request, url_for)
 from flask_login import current_user, login_required
@@ -6,7 +12,7 @@ from . import artifacts, jobs as job_queue, limiter
 from .audit import log
 from .db import db
 from .forms import ConfirmTypeForm, UploadForm
-from .models import DISK, MEMORY, NEEDS_TYPE, PENDING, Job
+from .models import (DISK, MEMORY, NEEDS_TYPE, PENDING, SEVERITY_ORDER, Job)
 
 bp = Blueprint("main", __name__)
 
@@ -31,9 +37,76 @@ def jobs():
 @bp.route("/jobs/<int:job_id>")
 @login_required
 def job_detail(job_id):
+    from . import report
+    from .forensics import baseline
+
     job = _owned(job_id)
-    results = sorted(job.results, key=lambda r: -r.probability)
-    return render_template("job_detail.html", job=job, results=results)
+    # Most severe first: an analyst reads the top of this table and stops.
+    results = sorted(job.results,
+                     key=lambda r: (-SEVERITY_ORDER.get(r.severity, 0), -r.probability))
+    counts = Counter(r.severity or "Unrated" for r in results)
+    return render_template("job_detail.html", job=job, results=results,
+                           severity_counts=counts, baseline=baseline.info(),
+                           limitations=report.limitations(job))
+
+
+@bp.route("/jobs/<int:job_id>/report.pdf")
+@login_required
+def report(job_id):
+    from . import report as renderer
+
+    job = _owned(job_id)
+    pdf = renderer.render(job)
+    log("report_download", job=job, detail=f"{len(pdf)} bytes")
+    db.session.commit()
+    return current_app.response_class(
+        pdf, mimetype="application/pdf",
+        headers={"Content-Disposition":
+                 f"inline; filename=forensic_report_job{job.id}.pdf"})
+
+
+@bp.route("/jobs/<int:job_id>/export.<fmt>")
+@login_required
+def export(job_id, fmt):
+    job = _owned(job_id)
+    rows = sorted(job.results, key=lambda r: (-SEVERITY_ORDER.get(r.severity, 0),
+                                              -r.probability))
+    log("report_export", job=job, detail=fmt)
+    db.session.commit()
+
+    fields = ["path", "partition", "inode", "file_sha256", "file_md5", "file_size",
+              "allocated", "data_offset", "mtime", "atime", "ctime", "btime",
+              "probability", "threshold", "malicious", "severity"]
+
+    if fmt == "json":
+        payload = [{f: _plain(getattr(r, f)) for f in fields} |
+                   {"indicators": [{"tag": x.tag, "mitre_id": x.mitre_id,
+                                    "feature": x.feature} for x in r.findings]}
+                   for r in rows]
+        return current_app.response_class(
+            json.dumps({"job": job.id, "artifact": job.artifact,
+                        "sha256": job.sha256, "results": payload}, indent=2),
+            mimetype="application/json",
+            headers={"Content-Disposition": f"attachment; filename=job{job.id}.json"})
+
+    if fmt != "csv":
+        abort(404)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(fields + ["indicators"])
+    for r in rows:
+        writer.writerow([_plain(getattr(r, f)) for f in fields] +
+                        ["; ".join(sorted({x.tag for x in r.findings if x.tag}))])
+    return current_app.response_class(
+        buf.getvalue(), mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=job{job.id}.csv"})
+
+
+def _plain(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
 
 
 @bp.route("/jobs/<int:job_id>/status")
