@@ -596,6 +596,28 @@ every other running job, not just the one that hit it. Run EMBER vectorization i
 `concurrent.futures.ProcessPoolExecutor` with a per-file timeout, so a crash costs one
 worker. This is stdlib — it is not the Celery/Redis that Section 10 rejects.
 
+### 6.1 Demonstrating a disk detection without live malware — measured
+
+The CFReDS evidence image contains only signed Microsoft and OpenOffice binaries, so the
+disk pipeline correctly flags nothing on it and the detection path is never exercised.
+**UPX-packing a benign binary does cross the threshold.** Measured, one variable changed:
+
+| Binary | State | Entropy | Probability | Verdict |
+|---|---|---:|---:|---|
+| `python.exe` | original | 6.489 | 0.0010 | clean |
+| `python.exe` | UPX `-9` | 7.288 | **0.6607** | flagged |
+| `pythonw.exe` | original | 6.480 | 0.0016 | clean |
+| `pythonw.exe` | UPX `-9` | 7.304 | **0.5441** | flagged |
+
+(`notepad.exe` and `calc.exe` will not pack; UPX rejects them.)
+
+**Word this honestly wherever it appears.** A packed benign binary being flagged is a
+**false positive**, not a detection. It happens because EMBER's malicious class is heavily
+packed, so high entropy is genuinely predictive in that training distribution. It is a
+sound way to demonstrate that extraction → prediction → LIME → tags → severity → report
+works end to end, and that packing is what drives the score. It is not evidence the system
+found malware, and must never be presented that way.
+
 **Also record this caveat in every disk report:** the installed `lief` (1.0.x)
 differs from the version EMBER's extractor was validated against (0.9.0), so feature
 values may differ slightly from the official benchmark. This was accepted during
@@ -1198,8 +1220,10 @@ a tutorial generator. Concretely:
 
 ## 14. BUILD ORDER
 
-The step-by-step plan with per-step done-criteria, verification, and risk guards lives
-in `BUILD_PLAN.md`. This is the summary.
+**All ten steps are complete.** `STATUS.md` is the live handoff state — read it first for
+what exists, what is verified and what is next. Section 17 below maps the as-built code.
+The plan with per-step done-criteria and risk guards lives in `BUILD_PLAN.md`. This is the
+original summary, kept for the record.
 
 0. Environment and repo: `git init`, venv on Python 3.11.9, pinned requirements,
    `scripts/patch_ember.py`, `scripts/check_env.py`. Do this before any app code —
@@ -1288,3 +1312,66 @@ reportlab. Test: pytest, pytest-flask.
 
 Assert at startup that the running xgboost/lightgbm/sklearn versions match the
 `library_versions` block in each metadata.json, and log loudly on mismatch.
+
+---
+
+## 17. AS BUILT — implementation map
+
+All ten build steps are complete. `STATUS.md` carries the live handoff state; this
+section records the design decisions that are not obvious from the code.
+
+```
+wsgi.py                  app = create_app(); the FLASK_APP target
+run.py                   guarded launcher (see Section 10 on Windows spawn)
+app/
+  config.py              Config / TestConfig; BASELINE_FILE, LOAD_MODELS,
+                         DISPATCH_JOBS, RECOVER_ORPHANS
+  db.py                  SQLAlchemy + the SQLite WAL/busy-timeout pragmas
+  models.py              users, jobs, results, findings, audit_log
+  artifacts.py           streaming upload + hashing, positive-ID type sniffing
+  auth.py routes.py      blueprints; routes also holds export.csv/.json and report.pdf
+  jobs.py                Flask-Executor supervisor + module-level ProcessPoolExecutor
+  inference/{disk,memory}.py    two loaders, no shared base class
+  extractors/{disk,memory}.py   pytsk3/EMBER and volatility3
+  explain.py             LIME explainers, built once at startup
+  forensics/
+    meanings.py          feature -> forensic significance; BEHAVIOURAL, observed()
+    mitre.py             TAGS, match(features, pipeline, values), DISCLAIMER
+    severity.py          for_disk() verdict-led, for_memory() evidence-led
+    baseline.py          clean-system comparison, ELEVATED factor, NOTE
+  report.py              limitations() + render(); REQUIRED_* mandatory strings
+baselines/clean_win10_x64.json    the reference capture and its ground truth
+scripts/                 setup_env, check_env, patch_ember, scan_image,
+                         dump_memory_features
+```
+
+**Three mechanisms a fresh session will otherwise re-derive the hard way:**
+
+1. **Limitations are defined once.** `report.limitations(job)` returns
+   `[(heading, [paragraph, ...])]` and is consumed by both `report.render()` and
+   `templates/_limitations.html`. The PDF and the dashboard therefore cannot drift.
+   `report.REQUIRED_ALWAYS / REQUIRED_DISK / REQUIRED_MEMORY` list the strings the test
+   suite asserts against the *rendered* PDF — `render(job, compress=False)` keeps the page
+   streams readable so the assertion is real rather than a check on the input data.
+
+2. **The severity split.** `jobs._memory` calls `mitre.match` **twice**: once over
+   everything observed, to label findings so the analyst sees what each measurement maps
+   to, and once over only the baseline-elevated subset, to drive severity. See 9.6 — this
+   exists because matching on presence scored the clean reference capture as Critical.
+
+3. **`find_pae_dtb` scans the narrow band first.** Modern Windows keeps the DTB in
+   `0x1a0000–0x1b0000`, and a full 2 GB sweep costs ~65 s while finding nothing at all on
+   x64 — which is the common case. Band first, full sweep only as a fallback.
+
+**Testing notes that are not guessable:**
+
+- `TestConfig` sets `LOAD_MODELS=False`, `DISPATCH_JOBS=False`, `RECOVER_ORPHANS=False`.
+  Model-dependent tests call `disk.load()` / `memory.load()` themselves.
+- `jobs.run` commits inside its own app context, so a test holding a pre-run copy must
+  `db.session.expire_all()` before asserting. `tests/test_jobs.py:run_job` does this.
+- Concurrency tests use a **file-backed** SQLite database. The in-memory one hands every
+  thread the same connection and fails with `StaleDataError` — a configuration this
+  project does not ship.
+- Rate limiting stays enabled under test; Flask-Limiter's `init_app` returns early when
+  disabled, so switching it off would mean never exercising the code. The conftest resets
+  the counters between tests instead.
