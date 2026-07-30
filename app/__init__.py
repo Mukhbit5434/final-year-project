@@ -41,8 +41,11 @@ def create_app(config=Config):
     from . import models
 
     if app.config.get("LOAD_MODELS", True):
-        from . import inference
+        from . import explain, inference
+        from .forensics import baseline
         inference.init(app.config["MODELS_DIR"], app.config["REFERENCE_DIR"])
+        explain.init(app.config["MODELS_DIR"], app.config["REFERENCE_DIR"])
+        baseline.load(app.config["BASELINE_FILE"])
 
     @login.user_loader
     def load_user(uid):

@@ -22,6 +22,10 @@ class Config:
 
     MODELS_DIR = ROOT / "models"
     REFERENCE_DIR = ROOT / "reference_data"
+    # Clean-system reference for the memory report. Separate from reference_data/,
+    # which holds the irreplaceable training distributions and is never added to.
+    BASELINE_FILE = Path(os.environ.get(
+        "BASELINE_FILE", ROOT / "baselines" / "clean_win10_x64.json"))
 
     # Disk triage caps. A 200 GB image with 40k executables would otherwise sit
     # in the queue for a day; the report states what was skipped and why.

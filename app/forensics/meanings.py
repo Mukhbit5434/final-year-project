@@ -145,6 +145,29 @@ GROUPS = {
 }
 
 
+# Memory features that describe something a machine *did* rather than how it is
+# configured. These drive the evidence-led memory report; service and driver
+# counts are deliberately excluded because every Windows box has hundreds.
+BEHAVIOURAL = [
+    "malfind.ninjections", "malfind.commitCharge", "malfind.uniqueInjections",
+    "ldrmodules.not_in_load", "ldrmodules.not_in_init", "ldrmodules.not_in_mem",
+    "psxview.not_in_pslist", "psxview.not_in_eprocess_pool",
+    "psxview.not_in_ethread_pool", "psxview.not_in_csrss_handles",
+    "callbacks.nanonymous",
+]
+
+
+def observed(vec, names):
+    """-> {feature: value} for the behavioural indicators actually present.
+
+    Independent of the model: these are Volatility's measurements of the dump and
+    are true whatever the probability says (CLAUDE.md 9.6).
+    """
+    index = {n: i for i, n in enumerate(names)}
+    return {f: float(vec[index[f]]) for f in BEHAVIOURAL
+            if f in index and vec[index[f]] > 0}
+
+
 def _index(name):
     return int(name.rsplit("_", 1)[1])
 

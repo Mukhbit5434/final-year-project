@@ -337,6 +337,44 @@ the dataset artifact `models/memory/metadata.json` already warns about, now with
 mechanism. It is not fixable here — retraining is out of scope (hard rule 7) — so the
 memory report must be **evidence-led, not verdict-led**. See 9.6.
 
+### 5.6a Extraction validated in absolute terms — the ground-truth check
+
+The x64 reference capture (`baselines/clean_win10_x64.json`) was taken with the answers
+measured *inside the VM at capture time*, so for once the extractor could be checked
+against reality rather than only against the training distribution.
+
+| Quantity | Ours | Windows | Delta |
+|---|---:|---:|---|
+| `pslist.nproc` vs `(Get-Process).Count` | 67 | 67 | **exact** |
+| `kernel_drivers + fs_drivers` vs `driverquery` | 360 | 362 | −0.6% |
+| `svcscan.nservices` vs `Get-Service` + `driverquery` | 632 | 615 | +2.8% |
+
+**State the comparison before drawing a conclusion.** `Get-Service` returns Win32
+services only — it does not list device drivers — so the valid target for
+`svcscan.nservices`, which enumerates both, is 253 + 362 = 615, not 253. The residual
++17 sits in the Win32 bucket and is consistent with per-user service instances and
+records of services removed since boot that remain resident.
+
+**Conclusion: extraction is correct, and the training range is simply far below
+reality.** Windows itself counts 615 services and drivers where the training data spans
+195–395. That is the SMOTE range compression of Section 2, not an extraction bug. Do not
+reopen this.
+
+### 5.6b Torn rows from live acquisition
+
+Live acquisition reads memory while Windows is still modifying it, so the process list
+can be caught mid-update. The x64 capture (Magnet RAM Capture) contained one
+structurally torn `EPROCESS`: PID 88804946376740, unprintable image name, 333,494,799
+threads, exit time in the year 2949. It moved `pslist.avg_threads` from 13.1 to
+**4,977,547**.
+
+`extractors/memory.py:torn_rows` rejects rows whose PID or thread count is outside any
+possible range. The row still counts toward `pslist.nproc` — the process is real, only
+its fields are unreadable, and dropping it would have put the count one below the
+ground-truth 67 — but it is excluded from every average and disclosed in
+`extraction_gaps`. The dataset's VirtualBox snapshots were atomic and never hit this;
+any live-acquired dump can.
+
 ### 5.7 Match VolMemLyzer's semantics, bugs included
 
 The reference implementation is public and settles most of what Section 5.2 had to infer.

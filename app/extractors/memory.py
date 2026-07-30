@@ -97,14 +97,21 @@ def find_pae_dtb(ctx, layer_name):
     """
     from volatility3.framework.automagic import windows as winmagic
 
+    layer = ctx.layers[layer_name]
     scanner = winmagic.PageMapScanner([winmagic.DtbSelfRefPae()])
-    hits = [offset for _, offset in ctx.layers[layer_name].scan(ctx, scanner)]
-    if not hits:
-        return None
-    # Modern Windows randomises the self-referential index but keeps the DTB in
-    # a narrow band; prefer a hit there when several turn up.
-    preferred = [h for h in hits if 0x1A0000 <= h < 0x1B0000]
-    return (preferred or hits)[0]
+
+    # Modern Windows randomises the self-referential index but keeps the DTB in a
+    # narrow band - volatility's own stacker says the same, and the 32-bit sample
+    # capture puts it at 0x1a8000. Checking the band first costs milliseconds; a
+    # full 2 GB sweep costs about a minute and finds nothing at all on x64, which
+    # is the common case for this function.
+    band = [offset for _, offset in layer.scan(ctx, scanner,
+                                               sections=[(0x1A0000, 0x10000)])]
+    if band:
+        return band[0]
+
+    hits = [offset for _, offset in layer.scan(ctx, scanner)]
+    return hits[0] if hits else None
 
 
 def build_context(dump, catalog=None):
@@ -221,12 +228,33 @@ def _ratio(numerator, denominator):
     return float(numerator) / denominator if denominator else 0.0
 
 
+# A live acquisition reads memory while Windows is still modifying it, so the
+# process list can be caught mid-update and yield a structurally torn row: an
+# unprintable image name, a PID far outside any real range, a thread count in the
+# hundreds of millions, an exit time centuries away. One such row moved
+# pslist.avg_threads from 13.5 to 4,977,547 on the first x64 capture. The row is
+# still a process - the count stays right - but its fields cannot be averaged.
+MAX_PID = 0xFFFFFFFF
+MAX_THREADS = 100000
+
+
+def _sane(value, ceiling):
+    return isinstance(value, int) and 0 <= value <= ceiling
+
+
+def torn_rows(rows):
+    return [r for r in rows
+            if not _sane(r.get("PID"), MAX_PID)
+            or not _sane(r.get("Threads"), MAX_THREADS)]
+
+
 def from_pslist(rows, nhandles):
     n = len(rows)
-    threads = [t for t in (r.get("Threads") for r in rows) if isinstance(t, int)]
+    threads = [r.get("Threads") for r in rows if _sane(r.get("Threads"), MAX_THREADS)]
+    ppids = {r.get("PPID") for r in rows if _sane(r.get("PPID"), MAX_PID)}
     return {
         "pslist.nproc": float(n),
-        "pslist.nppid": float(len({r.get("PPID") for r in rows})),
+        "pslist.nppid": float(len(ppids)),
         "pslist.avg_threads": _ratio(sum(threads), len(threads)),
         # Counts WOW64 processes - 32-bit processes on a 64-bit kernel - despite
         # the name. VolMemLyzer V1 sums the Wow64 column, V2 counts Wow64 == True;
@@ -397,7 +425,7 @@ MISSING = {
 }
 
 
-def assemble(parts, feature_names, unknown_protection=()):
+def assemble(parts, feature_names, unknown_protection=(), torn=0):
     """Lay the collected values out in feature_list.json order.
 
     Ordering is derived from the JSON list, never hand-sequenced. The startup
@@ -431,6 +459,12 @@ def assemble(parts, feature_names, unknown_protection=()):
                      "confidence": "inferred",
                      "reason": f"protection flag {flag!r} has no Volatility 2 index; "
                                "contributed 0 to the sum"})
+    if torn:
+        gaps.append({"field": "pslist.avg_threads", "plugin": "pslist",
+                     "confidence": "inferred",
+                     "reason": f"{torn} process row(s) were structurally torn, most "
+                               "likely captured mid-update by a live acquisition tool; "
+                               "still counted in nproc but excluded from the averages"})
     return vec, gaps
 
 
@@ -468,8 +502,9 @@ def extract(dump, feature_names, progress=None):
         from_svcscan(collected["svcscan"]),
         from_callbacks(collected["callbacks"]),
     ]
-    vec, gaps = assemble(parts, feature_names, unknown)
+    torn = len(torn_rows(collected["pslist"]))
+    vec, gaps = assemble(parts, feature_names, unknown, torn)
     counts = {k: len(v) for k, v in collected.items()}
     return {"vec": vec, "gaps": gaps, "plugin_rows": counts, "bits": prepared["bits"],
-            "svcscan_raw_rows": raw_services,
+            "torn_process_rows": torn, "svcscan_raw_rows": raw_services,
             "svcscan_duplicate_ratio": raw_services / max(len(collected["svcscan"]), 1)}

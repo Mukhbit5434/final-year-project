@@ -3,8 +3,8 @@ import logging
 from concurrent.futures import ProcessPoolExecutor
 
 from .db import db
-from .models import (COMPLETED, DISK, FAILED, MEMORY, RUNNING, Job, Result,
-                     utcnow)
+from .models import (COMPLETED, DISK, FAILED, MEMORY, RUNNING, Finding, Job,
+                     Result, utcnow)
 
 log = logging.getLogger(__name__)
 
@@ -77,25 +77,62 @@ def run(app, job_id):
             db.session.remove()
 
 
+def _findings(result, described, matched):
+    """Attach the tag that claimed each feature, if any."""
+    owner = {}
+    for m in matched:
+        for feature in m["features"]:
+            owner.setdefault(feature, m)
+
+    for item in described:
+        m = owner.get(item["feature"])
+        db.session.add(Finding(
+            result=result, feature=item["feature"], weight=item.get("weight"),
+            rank=item.get("rank"), meaning=item["why"],
+            tag=m["tag"] if m else None,
+            mitre_id=m["mitre_id"] if m else None,
+            mitre_name=m["mitre_name"] if m else None,
+            confidence=m["confidence"] if m else None))
+
+
 def _disk(app, job, path):
+    from . import explain
+    from .forensics import mitre, severity
     from .inference import disk as model
 
     cfg = app.config
     out = pool().submit(extract_disk, str(path), cfg["MAX_PE_FILES"],
                         cfg["MAX_PE_BYTES"]).result()
 
+    names = model.names()
     flagged = 0
     for rec in out["files"]:
-        prob, malicious = model.predict(model.subset(rec["vec"]))
+        vec = model.subset(rec["vec"])
+        prob, malicious = model.predict(vec)
         flagged += malicious
-        db.session.add(Result(
+
+        result = Result(
             job=job, probability=prob, threshold=model.threshold(),
             malicious=bool(malicious),
             path=rec["path"], partition=rec["partition"], inode=rec["inode"],
             file_sha256=rec["file_sha256"], file_md5=rec["file_md5"],
             file_size=rec["file_size"], allocated=rec["allocated"],
             data_offset=rec["data_offset"], mtime=rec["mtime"],
-            atime=rec["atime"], ctime=rec["ctime"], btime=rec["btime"]))
+            atime=rec["atime"], ctime=rec["ctime"], btime=rec["btime"])
+        db.session.add(result)
+
+        if not malicious:
+            # Explaining a benign verdict wastes the expensive part of LIME.
+            result.severity, result.severity_note = severity.for_disk(
+                prob, [], model.threshold())
+            continue
+
+        described = explain.disk_findings(vec)
+        values = dict(zip(names, (float(x) for x in vec)))
+        matched = mitre.match([d["feature"] for d in described], "disk", values)
+        result.severity, result.severity_note = severity.for_disk(
+            prob, matched, model.threshold())
+        _findings(result, described, matched)
 
     job.files_scanned = out["examined"]
     job.files_flagged = flagged
@@ -103,6 +140,8 @@ def _disk(app, job, path):
 
 
 def _memory(app, job, path):
+    from . import explain
+    from .forensics import baseline, meanings, mitre, severity
     from .inference import memory as model
 
     names = model.names()
@@ -111,13 +150,45 @@ def _memory(app, job, path):
 
     prob, malicious = model.predict(vec)
     count, fields = model.ood(vec)
+    # The score is only worth admitting when the four features the model actually
+    # leans on are inside the range it was fitted on (CLAUDE.md 5.4a, 9.6).
+    dominant = model.dominant_ood(vec)
+    reliable = not dominant
 
     job.extraction_gaps = out["gaps"]
     job.ood_count = count
     job.ood_fields = fields
-    # One row: the unit of analysis is the whole dump, not a file.
-    db.session.add(Result(job=job, probability=prob, threshold=model.threshold(),
-                          malicious=bool(malicious)))
+
+    # Evidence first. These are Volatility's measurements of this dump and hold
+    # whatever the probability says, so they are collected regardless of verdict.
+    observed = meanings.observed(vec, names)
+    elevated = baseline.compare(observed)
+    matched = mitre.match(list(observed), "memory")
+    sev, note = severity.for_memory(elevated, matched, prob, reliable)
+
+    result = Result(job=job, probability=prob, threshold=model.threshold(),
+                    malicious=bool(malicious), severity=sev, severity_note=note)
+    db.session.add(result)
+
+    described = []
+    for feature, value in sorted(observed.items(), key=lambda kv: -kv[1]):
+        d = meanings.describe(feature)
+        if d is None:
+            continue
+        d["why"] = f"{d['why']} {baseline.phrase(feature, value)}."
+        d["rank"] = len(described) + 1
+        described.append(d)
+
+    # LIME explains the model, so it only earns its runtime when the model both
+    # flags and is worth listening to.
+    if malicious and reliable:
+        seen = {d["feature"] for d in described}
+        for d in explain.memory_findings(vec):
+            if d["feature"] not in seen:
+                d["rank"] = len(described) + 1
+                described.append(d)
+
+    _findings(result, described, matched)
 
 
 def recover_orphans(app):
