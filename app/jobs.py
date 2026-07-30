@@ -163,8 +163,15 @@ def _memory(app, job, path):
     # whatever the probability says, so they are collected regardless of verdict.
     observed = meanings.observed(vec, names)
     elevated = baseline.compare(observed)
+
+    # Two matches on purpose. Findings are labelled from everything observed, so
+    # the analyst sees what each measurement maps to. Severity counts only what
+    # stands out against the clean baseline - matching on presence alone scored
+    # the clean reference capture itself as Critical.
     matched = mitre.match(list(observed), "memory")
-    sev, note = severity.for_memory(elevated, matched, prob, reliable)
+    standout = mitre.match([f for f, is_high in elevated.items() if is_high], "memory")
+    sev, note = severity.for_memory(elevated, standout, prob, reliable,
+                                    baselined=baseline.loaded())
 
     result = Result(job=job, probability=prob, threshold=model.threshold(),
                     malicious=bool(malicious), severity=sev, severity_note=note)

@@ -40,7 +40,8 @@ def for_disk(probability, matched, threshold):
 LEVELS = [LOW, MEDIUM, HIGH, CRITICAL]
 
 
-def for_memory(observed, matched, probability=None, model_reliable=False):
+def for_memory(observed, matched, probability=None, model_reliable=False,
+               baselined=True):
     """Evidence-led, and deliberately on a different scale from the disk function.
 
     The memory model's probability is weak on any capture that is not from the
@@ -49,15 +50,25 @@ def for_memory(observed, matched, probability=None, model_reliable=False):
     injected memory is High because of what was found, not because a number
     crossed a threshold.
 
-    `observed` maps indicator name -> whether it is elevated against baseline;
-    the caller does that comparison.
+    **`matched` must be built from indicators that are elevated against the clean
+    baseline, not merely present.** Every healthy Windows system has malfind,
+    ldrmodules and psxview hits, so matching on presence scored the clean
+    reference capture itself as Critical. `observed` maps indicator name ->
+    elevated, and `baselined` says whether that comparison was possible at all.
     """
     risky = len({m["mitre_id"] for m in matched if m["tag"] in HIGH_RISK})
     elevated = sum(1 for v in observed.values() if v)
 
     level = 0 if risky == 0 else 1 if risky == 1 else 2 if risky <= 3 else 3
+    basis = ("elevated against the clean-system baseline" if baselined else
+             "present, with no clean-system baseline available for comparison")
     reason = [f"{risky} high-risk indicator categor{'y' if risky == 1 else 'ies'} "
-              f"matched from observed artifacts"]
+              f"{basis}"]
+
+    if not baselined:
+        # Without a baseline every category is "present", which on a healthy
+        # machine is most of them. Cap the claim rather than overstate it.
+        level = min(level, 1)
 
     if elevated >= 2:
         level = min(level + 1, 3)

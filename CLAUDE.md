@@ -952,6 +952,15 @@ hidden modules plus injected memory is High because of what was found. The proba
 may contribute, but it must never be the sole driver. Disk severity is unaffected and
 stays verdict-led — that pipeline has no equivalent problem.
 
+**Severity counts indicators that are ELEVATED against the baseline, never merely
+present.** This one is measured, not theoretical: matching on presence scored the clean
+x64 reference capture as **Critical**, with four high-risk categories matched, while
+every individual finding on the same report read *"consistent with a healthy system"*.
+Every healthy Windows box produces malfind, ldrmodules and psxview hits. So the job layer
+runs `mitre.match` twice — once over everything observed, to label the findings, and once
+over only the elevated subset, to drive severity. When no baseline is loaded at all,
+severity is capped at Medium and the note says why.
+
 **Report the findings against a clean baseline, never as bare counts.** These artifacts
 occur on healthy Windows systems: `malfind` flags the RWX memory that JIT compilers,
 browsers and .NET allocate legitimately; `ldrmodules` mismatches happen during ordinary

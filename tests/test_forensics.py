@@ -141,6 +141,42 @@ def test_disk_severity_is_verdict_led():
     assert high in (HIGH, CRITICAL)
 
 
+def test_a_clean_capture_matching_its_own_baseline_is_not_critical():
+    """The regression that made this rule explicit.
+
+    Every healthy Windows system produces malfind, ldrmodules and psxview hits.
+    Scoring on indicators that are merely present matched four high-risk
+    categories on the clean reference capture and reported it as Critical, while
+    every individual finding read "consistent with a healthy system".
+    """
+    observed = {"malfind.ninjections": False, "ldrmodules.not_in_init": False,
+                "psxview.not_in_pslist": False, "ldrmodules.not_in_load": False}
+    standout = mitre.match([f for f, hot in observed.items() if hot], "memory")
+    sev, note = severity.for_memory(observed, standout, probability=0.0084,
+                                    model_reliable=False)
+    assert sev == LOW
+    assert "0 high-risk" in note and "baseline" in note
+
+
+def test_elevated_indicators_do_raise_severity():
+    observed = {"malfind.ninjections": True, "ldrmodules.not_in_init": True,
+                "psxview.not_in_pslist": True}
+    standout = mitre.match([f for f, hot in observed.items() if hot], "memory")
+    sev, _ = severity.for_memory(observed, standout, probability=0.5,
+                                 model_reliable=False)
+    assert sev in (HIGH, CRITICAL)
+
+
+def test_without_a_baseline_the_claim_is_capped():
+    # Nothing to compare against, so presence is all we have - say so and do not
+    # escalate past Medium on it.
+    present = mitre.match(["malfind.ninjections", "ldrmodules.not_in_init",
+                           "psxview.not_in_pslist"], "memory")
+    sev, note = severity.for_memory({}, present, baselined=False)
+    assert sev == MEDIUM
+    assert "no clean-system baseline" in note
+
+
 def test_memory_severity_ignores_the_model_when_out_of_distribution():
     matched = mitre.match(["malfind.ninjections", "ldrmodules.not_in_init",
                            "psxview.not_in_pslist"], "memory")
