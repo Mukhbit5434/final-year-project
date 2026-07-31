@@ -30,12 +30,22 @@ on *what exists*.
 content (including two named `.db` and `.regtrans-ms`), 13 unique after SHA-256 dedupe,
 0 flagged, ~11 s. Correct: the image holds only signed Microsoft and OpenOffice binaries.
 
-**Memory x64** — `win10_memory.raw`, 3.5 min. Ground truth measured inside the VM at
-capture time: processes 67 vs 67 exact, drivers 360 vs 362, services+drivers 632 vs 615.
-Extraction is correct in absolute terms; the training range really is far below reality.
+**Memory x64** — `win10_memory.raw`, **489 s** through the job layer. Ground truth
+measured inside the VM at capture time: processes 67 vs 67 exact, drivers 360 vs 362,
+services+drivers 632 vs 615. Extraction is correct in absolute terms; the training range
+really is far below reality. Clean capture scored **p=0.0084, severity Low** — correctly
+benign despite 21 of 55 features being out of range.
 
-**Memory x86** — `Windows 10-32-f7257ea7.vmem`, 3.5 min, needs the custom PAE layer that
-stock Volatility cannot build.
+**Memory x86** — `Windows 10-32-f7257ea7.vmem`, **384 s**, needs the custom PAE layer that
+stock Volatility cannot build. Clean capture scored **p=0.3701, severity Medium** — above
+the 0.2337 threshold, i.e. a false positive on a machine known to be clean. Retained as a
+test artifact only; 32-bit is out of scope (CLAUDE.md §11.1).
+
+**Runtime discrepancy — investigate next session.** Standalone extraction timed 211 s
+(3.5 min) on both captures; through `verify_pipeline.py` the same work took 489 s and
+384 s, roughly 2.3×. Unexplained. Candidates: the banded PAE scan, the added verification
+work in-process, LIME and report rendering, or machine load from three artifacts run back
+to back. Quote 6–8 minutes end to end until resolved, not 3.5.
 
 **Web** — every route returns against real data; PDFs render for both pipelines; uploaded
 artifacts are unreachable over HTTP.
@@ -105,34 +115,115 @@ raised nothing. Kept here because the pattern is the argument for testing on rea
 - Six of the 55 memory features cannot be produced by Volatility 3 (its `psxview`
   enumerates four ways, not seven). Emitted as 0.0, recorded as gaps, 0.2% of model gain.
 - `lief` 1.0.0 vs the 0.9.0 EMBER was validated against; disclosed in every disk report.
-- The clean baseline is **one capture, from one machine**. It anchors order of magnitude,
-  not a threshold — `malfind.commitCharge` spans 200× across captures of a single machine.
-  **Observed concretely:** running the x86 dump against the x64 machine's baseline yields
-  severity **Medium** on a system known to be clean, because that machine simply runs more
-  modules and processes (ldrmodules 230 vs 203, `psxview.not_in_pslist` 9 vs 3). The x64
-  dump against its own baseline correctly yields Low. A baseline is only meaningful for
-  the machine it came from, or for a fleet built from the same image — the report must not
-  imply otherwise.
+- The clean baseline is **per-machine by design** (CLAUDE.md §11.1). It anchors order of
+  magnitude, not a threshold — `malfind.commitCharge` spans 200× across captures of a
+  single machine, so more captures of the reference machine are still needed.
+  **Evidence for the scope decision:** running the x86 dump against the x64 machine's
+  baseline yields severity **Medium** on a system known to be clean, because that machine
+  simply runs more (ldrmodules 230 vs 203, `psxview.not_in_pslist` 9 vs 3). The x64 dump
+  against its own baseline correctly yields Low. That is cross-machine misuse, which the
+  scope now forbids — not an outstanding defect.
 - A UPX-packed benign binary is flagged (0.0010 → 0.6607). Useful for demonstrating the
   detection path; it is a false positive and must be worded as one.
 
 ## Outstanding
 
-**Nothing is blocking.** Two optional items, both waiting on the user:
+Nothing blocks the build. Four items, in the order they should be tackled.
 
-1. **More clean captures** for the variance distribution — fresh boot, idle, browser open,
-   during a Defender scan, and *within ~30 s of closing several applications* (that last
-   state drives `psxview.not_in_pslist`, the worst-variance indicator, and none of the
-   others reach its peak). Two captures 15 s apart in one state separate capture noise
-   from state noise. `baselines/` takes additional entries.
-2. **A demo positive for the disk pipeline** — build a small raw image containing
-   UPX-packed benign binaries so the findings → tags → severity → report path can be shown
-   producing a detection. Confirmed to work; not yet built.
+### 1. Captures from the reference machine — user supplies
+
+**A. Clean baseline set, five captures across states:**
+
+| State | Note |
+|---|---|
+| Fresh boot | 2–3 min settle |
+| Idle | 20–30 min after boot, so SearchIndexer / NGEN / Update have finished |
+| Browser open | |
+| Two or three apps running | |
+| Within ~30 s of closing several applications | Drives `psxview.not_in_pslist`, the worst-variance indicator — no other state reaches its peak |
+
+Plus **two captures 15 s apart in one state**, to separate capture noise from state noise
+and mirror the dataset's own cadence (ICISSP 2022 §4.2).
+
+**B. Simulated-malicious capture, same machine.** Genuine forensic artifacts without live
+malware: process injection (`CreateRemoteThread` / `VirtualAllocEx`, producing real
+`malfind` RWX regions), a running UPX-packed binary, and/or a hidden process.
+**The specific safe simulation method is subject to supervisor approval.**
+
+*Open question for next session:* which artifacts the malicious capture must exhibit for
+the findings → tags → severity path to demonstrate well, and which safe simulation method
+is recommended for each.
+
+### 2. Empirical test of the OOD gate — planned experiment, not a decision
+
+The x64 clean capture scored p=0.0084 — correctly benign — despite 21 of 55 features being
+out of range. The model extrapolated and landed correctly. **One correct result is not a
+pattern**, but it is worth measuring properly.
+
+When the five clean captures exist, run all five through the model and record their
+probabilities, then run the malicious capture.
+
+- **All five clean below threshold and the malicious substantially higher** → the model
+  discriminates meaningfully on this reference machine despite being technically out of
+  distribution. That would justify *showing* the verdict with a stated caveat rather than
+  withholding it.
+- **Any clean capture above threshold** → withholding is confirmed correct, and we have a
+  measured false-positive rate on a machine known to be clean. Note the x86 dump already
+  scored 0.3701 on a clean system, which is evidence in this direction.
+
+**The OOD gate stays exactly as it is until this data exists. Do not unlock it on
+optimism.** This is not reopening the distribution investigation — the SMOTE root cause is
+closed and stays closed. It only measures whether the gate is correctly calibrated for the
+reference machine.
+
+### 3. Enforce the reference-environment scope statement
+
+CLAUDE.md §11.1 specifies a mandatory scope statement for every memory report. It is
+**specified but not enforced**: it is absent from `report.REQUIRED_MEMORY` and
+`report.limitations()` does not emit it. Add both, so the build fails if it goes missing.
+
+### 4. Investigate the runtime discrepancy
+
+211 s standalone vs 489 s / 384 s through `verify_pipeline.py`. See the runtime note above.
+
+## Demo plan
+
+**Memory — two parts, plus a comparison:**
+
+1. **A held-out row from CIC-MalMem-2022** fed straight through the inference path.
+   In-distribution, OOD count zero, verdict displayed. *Proves the model works.*
+2. **A real capture from the reference machine.** OOD fires (unless item 2 above shows
+   otherwise); forensic findings and MITRE mapping still deliver value. *Proves the guard
+   works.*
+3. **Clean vs simulated-malicious** from the same machine, against that machine's own
+   baseline — the before/after that makes the baseline design legible.
+
+**Disk — three parts:**
+
+1. **Clean CFReDS image** — 0 of 13 flagged. Correct negative.
+2. **UPX-packed benign binary** — flagged. Framed explicitly as packing/obfuscation
+   detection and a **known false positive**, never as malware detection.
+3. **A known-malicious row from EMBER's test set** fed straight through the disk inference
+   path — a genuine true positive on real malware data, with no malware files handled.
+
+**Prerequisite — already satisfied at the inference layer.** `memory.predict(vec)` takes a
+55-vector and `disk.predict(vec_150)` takes a 150-vector directly; `disk.subset()` reduces
+a 2381-vector when needed. The existing tests already drive both this way with hand-built
+and reference-row vectors, so demos 1 and 3 need no new inference capability. What does
+not exist is an **application entry point** for a raw vector — the web app only accepts
+artifact uploads. A small script or route is needed to feed a stored vector through and
+render a result. That is the only build work these demos require.
 
 ## The exact next task
 
-Build the demo image for item 2 above: create a small raw disk image, place two or three
-UPX-packed benign binaries on it alongside unpacked ones, run it through the pipeline, and
-confirm the report renders a flagged file with its path, SHA-256, `T1027` tag and severity
-— with the wording making clear it is packing, not malware. Everything needed for this
-already works; it is assembly, not new capability.
+Two independent tracks; either can start first.
+
+**Track A (no user input needed):** item 3 above — add the reference-environment scope
+statement to `report.REQUIRED_MEMORY` and emit it from `report.limitations()` for memory
+jobs, then confirm the existing mandatory-string test fails without it and passes with it.
+Small, self-contained, and closes a specified-but-unenforced gap.
+
+**Track B (needs the captures):** once the five clean captures from item 1A arrive, extend
+`baselines/clean_win10_x64.json` into a multi-capture distribution (median and IQR per
+indicator rather than a single value), then run the OOD experiment in item 2 and record
+the five probabilities before touching the gate.

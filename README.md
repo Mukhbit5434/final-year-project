@@ -11,9 +11,14 @@ feature CSV is ever uploaded.
 Two independent pipelines share the web layer, the database and the report generator, and
 nothing else.
 
+**The memory pipeline is scoped to one controlled reference machine — Windows 10 x64**,
+matching the environment the CIC-MalMem-2022 authors documented. Severity is calibrated
+against that machine's own clean baseline. This is a deliberate scope decision for a
+demonstration project, not a general-purpose tool for arbitrary hosts. See CLAUDE.md §11.1.
+
 | | Disk | Memory |
 |---|---|---|
-| Input | `.dd .raw .img .E01 .EX01` | `.raw .mem .dmp .vmem` |
+| Input | `.dd .raw .img .E01 .EX01` | `.raw .mem .dmp .vmem` — **Windows 10 x64 only** |
 | Extractor | pytsk3 / libewf + EMBER | Volatility 3 |
 | Features | 150 of 2,381 | 55 |
 | Model | LightGBM | XGBoost |
@@ -159,7 +164,9 @@ Known limits, stated plainly:
   and recorded as gaps, never estimated. Measured impact: 0.2% of model gain.
 - Volatility 3.2.28 cannot auto-detect the page directory of a 32-bit PAE Windows image;
   its dummy-table guard discards any candidate with fewer than 10 valid pointers and a PAE
-  table has exactly four. The extractor builds that layer itself.
+  table has exactly four. The extractor builds that layer itself. This is retained because
+  it keeps the x86 *test artifact* readable and documents a real upstream defect —
+  32-bit is not a supported input (see the scope note above).
 - The installed `lief` (1.0.0) differs from the 0.9.0 release EMBER was validated against,
   so feature values may differ slightly from the official benchmark. Disclosed in every
   disk report.

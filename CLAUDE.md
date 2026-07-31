@@ -495,12 +495,21 @@ Volatility 3 resolves Windows kernel symbols by downloading PDB-derived ISF JSON
 offline machine memory extraction fails with a confusing symbol error. **Pre-populate the
 symbol cache** for the builds being analysed, ship it alongside the app, and document it.
 
-**Measured: 3.7 minutes** for all nine plugins on a 2 GB Windows 10 x86 capture (78
-processes, 34,323 handles), symbol cache already warm. The first run on an unseen build
-adds ~4 minutes of ISF download. Earlier drafts of this file guessed 15–45 minutes;
-that was pessimistic, but the runtime scales with dump size and process count and a
-large multi-socket capture will be far slower. Hard rule 10 still stands — say minutes,
-never seconds — and keep the per-plugin progress indicator.
+**Runtime is measured, and it has moved.** Standalone extraction runs timed 3.5–3.7
+minutes (211s) on both 2 GB captures with the symbol cache warm. The full
+`verify_pipeline.py` run through the job layer timed **489s (x64)** and **384s (x86)** —
+roughly 2.3× the standalone figure.
+
+**The cause is unexplained and needs investigating next session.** Candidates: the banded
+PAE scan added in Section 5.6, the extra verification work in the same process, the LIME
+and report rendering that follow extraction, or simply machine load from three artifacts
+running back to back. Do not quote 3.5 minutes as the pipeline figure — quote 6–8 minutes
+end to end until this is resolved.
+
+The first run on an unseen build adds ~4 minutes of ISF download on top. Earlier drafts of
+this file guessed 15–45 minutes; that was pessimistic, but runtime scales with dump size
+and process count and a large multi-socket capture will be far slower. Hard rule 10 still
+stands — say minutes, never seconds — and keep the per-plugin progress indicator.
 
 ---
 
@@ -943,6 +952,8 @@ scored. Do not make this a black box on top of a black box.
      "N of 55 features fall outside the range observed in the training data"
    - for memory results, a one-line statement that the underlying benchmark dataset
      shows unusually high separability and that real-world performance may differ
+   - for memory results, the **reference-environment scope statement** from Section 11.1,
+     which is mandatory and must be added to `report.REQUIRED_MEMORY`
 
    The section renders unconditionally, with explicit "none recorded" text when a list
    is empty. A test must fail if any mandatory string is absent.
@@ -1127,6 +1138,39 @@ and let memory use a single row.
 ---
 
 ## 11. WHAT THIS PROJECT DOES NOT INCLUDE
+
+### 11.1 The memory pipeline is scoped to one controlled reference machine
+
+**This is a binding scope decision, not a limitation to apologise for.** The memory
+pipeline targets a single controlled reference machine: **Windows 10 x64**, matching the
+capture environment the dataset authors documented in ICISSP 2022 §4.3. This project
+demonstrates the concept in a controlled environment; it is not a general-purpose tool for
+arbitrary machines.
+
+What follows from that:
+
+- **Accepted memory input is Windows 10 x64 only.** 32-bit is dropped from supported
+  input. The `.vmem`/`.vmss` x86 capture is retained purely as a test artifact — it caught
+  real bugs and still exercises code paths the x64 dump does not.
+- **The custom PAE layer stays in the codebase** (Section 5.6). It is what makes the
+  retained x86 test artifact readable, and removing it would delete a documented upstream
+  finding. Keeping the code does not make 32-bit a supported case.
+- **The clean baseline is the same reference machine's known-good state.** Comparing a
+  machine against its own baseline is the design, not a workaround. The x86-scoring-Medium
+  result recorded during verification was *cross-machine misuse*, which this scope now
+  forbids — it is evidence for the decision, not an outstanding defect.
+- **Every memory report must carry the scope statement**, and it belongs in the mandatory
+  limitation set so the build fails if it goes missing:
+
+  > Demonstrated on a controlled reference environment (Windows 10 x64). Severity is
+  > calibrated against a per-machine clean baseline and is valid for that machine.
+  > Cross-machine deployment would require a per-machine baseline established in advance.
+
+  *Not yet enforced in code.* `report.REQUIRED_MEMORY` does not contain it and
+  `report.limitations()` does not emit it. Adding both is a next-session task — see
+  STATUS.md.
+
+### 11.2 Out of scope entirely
 
 State these as scope, not gaps:
 - Live/real-time acquisition (analyst uploads an already-captured artifact)
