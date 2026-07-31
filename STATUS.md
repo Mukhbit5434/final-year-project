@@ -105,8 +105,14 @@ raised nothing. Kept here because the pattern is the argument for testing on rea
 - Six of the 55 memory features cannot be produced by Volatility 3 (its `psxview`
   enumerates four ways, not seven). Emitted as 0.0, recorded as gaps, 0.2% of model gain.
 - `lief` 1.0.0 vs the 0.9.0 EMBER was validated against; disclosed in every disk report.
-- The clean baseline is **one capture**. It anchors order of magnitude, not a threshold —
-  `malfind.commitCharge` spans 200× across captures of a single machine.
+- The clean baseline is **one capture, from one machine**. It anchors order of magnitude,
+  not a threshold — `malfind.commitCharge` spans 200× across captures of a single machine.
+  **Observed concretely:** running the x86 dump against the x64 machine's baseline yields
+  severity **Medium** on a system known to be clean, because that machine simply runs more
+  modules and processes (ldrmodules 230 vs 203, `psxview.not_in_pslist` 9 vs 3). The x64
+  dump against its own baseline correctly yields Low. A baseline is only meaningful for
+  the machine it came from, or for a fleet built from the same image — the report must not
+  imply otherwise.
 - A UPX-packed benign binary is flagged (0.0010 → 0.6607). Useful for demonstrating the
   detection path; it is a false positive and must be worded as one.
 

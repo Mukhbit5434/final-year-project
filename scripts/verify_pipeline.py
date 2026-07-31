@@ -128,7 +128,10 @@ def main():
             print(f"    report  : {len(pdf):,} bytes, "
                   f"{len(required)} mandatory strings checked")
 
+        # Collected here because the test client below has no app context, and
+        # touching db.session from inside it raises rather than returning rows.
         job_ids = [j.id for j in db.session.query(Job).all()]
+        stored_names = [j.stored_name for j in db.session.query(Job).all()]
 
     with app.test_client() as c:
         c.post("/login", data={"username": "verify",
@@ -143,17 +146,25 @@ def main():
                 print(f"    GET /jobs/{job_id}{suffix:14s} {r.status_code} "
                       f"{len(r.data):>9,} bytes{flag}")
 
-        with app.app_context():
-            for job in db.session.query(Job).all():
-                for path in (f"/static/{job.stored_name}", f"/uploads/{job.stored_name}"):
-                    if c.get(path).status_code not in (404, 308):
-                        failures.append(f"{path} is reachable over HTTP")
+        for stored in stored_names:
+            for path in (f"/static/{stored}", f"/uploads/{stored}"):
+                if c.get(path).status_code not in (404, 308):
+                    failures.append(f"{path} is reachable over HTTP")
     print("\nuploaded artifacts unreachable over HTTP: "
           f"{'yes' if not any('reachable' in f for f in failures) else 'NO'}")
 
     if not args.keep:
+        # Windows will not unlink an open SQLite file, so drop the pooled
+        # connections first. Cleanup never decides the exit code - a leftover
+        # scratch database is untidy, not a verification failure.
+        with app.app_context():
+            db.session.remove()
+            db.engine.dispose()
         for suffix in ("", "-wal", "-shm"):
-            (ROOT / "instance" / f"verify.db{suffix}").unlink(missing_ok=True)
+            try:
+                (ROOT / "instance" / f"verify.db{suffix}").unlink(missing_ok=True)
+            except OSError as e:
+                print(f"could not remove verify.db{suffix}: {e}")
 
     print("\n" + ("FAILURES:" if failures else "all checks passed"))
     for f in failures:
