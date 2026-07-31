@@ -213,6 +213,9 @@ def render(job, compress=True):
         ("Uploaded", job.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")),
         ("Analysis duration", f"{job.duration / 60:.1f} minutes" if job.duration else "n/a"),
         ("Job ID", job.id),
+        ("Retention", "The uploaded artifact is retained indefinitely on the analysis "
+                      f"host as <font face='Courier' size='7'>{job.stored_name}</font>, "
+                      "so the SHA-256 above remains verifiable against it."),
     ], st))
 
     # 2. Executive summary

@@ -918,7 +918,8 @@ scored. Do not make this a black box on top of a black box.
 ### 9.4 Report structure (PDF + dashboard)
 
 1. **Header / chain of custody** — filename, SHA-256 of the uploaded artifact, size,
-   upload timestamp, analyst identity, job ID, analysis duration
+   upload timestamp, analyst identity, job ID, analysis duration, and a retention line
+   naming the stored artifact (retention is policy — see Section 10)
 2. **Executive summary** — verdict, severity, one-paragraph plain-English summary
    auto-composed from the matched tags. Written for someone non-technical.
 3. **Verdict detail** — model probability, operating threshold used, model type and
@@ -1081,6 +1082,22 @@ infrastructure is scope creep, not improvement.
 5. Persist results; status → `COMPLETED` (or `FAILED` with a readable error)
 6. Frontend polls `GET /jobs/<id>/status`
 7. `GET /jobs/<id>/report.pdf` renders on demand from stored results
+
+**Uploaded artifacts are retained indefinitely, by design.** Evidence retention is the
+forensic norm: an analyst must be able to re-run an artifact without re-acquiring it, and
+the SHA-256 printed in the chain-of-custody header is only verifiable against the artifact
+it was computed from. Discarding the evidence after producing a report about it would
+leave a hash nobody can check.
+
+So there is **no purge mechanism, no retention window and no delete route — by choice,
+not oversight.** Do not add one as a tidy-up. The cost is stated rather than avoided: a
+memory capture is ~2 GB and every one is kept, on top of the 2× transient below. The
+report's chain-of-custody section says the artifact is retained and under what stored
+name, so retention is disclosed to whoever reads the report rather than being an
+undocumented property of the host.
+
+The artifact is never needed by the application again — `report.render()` builds entirely
+from stored results and job metadata. Retention is for the analyst, not the code.
 
 **Schema sketch:** `users`, `jobs` (artifact metadata, hash, type, status, timings,
 error), `results` (per-job verdict/confidence/severity; for disk, one row per file),

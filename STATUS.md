@@ -58,24 +58,25 @@ repo.
 `baselines/clean_win10_x64.json` is committed and holds the x64 capture's 55 features,
 its behavioural baseline and its ground-truth numbers.
 
-## Uploaded artifacts are retained forever — currently unmanaged
+## Uploaded artifacts are retained indefinitely — decided 2026-07-31
 
-**Stated so it is a choice rather than a discovery.** `uploads/` (gitignored, outside the
-web root, never served) keeps every uploaded artifact indefinitely. `artifacts.store`
-writes it, `jobs.run` reads it once, and **nothing ever deletes it** — there is no cleanup
-pass, no retention setting, no delete route, and CLAUDE.md §10's data flow never specified
-one. So today this is unmanaged growth, not a deliberate custody policy.
+**This is policy, not an oversight.** `uploads/` (gitignored, outside the web root, never
+served) keeps every uploaded artifact for good. Evidence retention is the forensic norm:
+an analyst must be able to re-run an artifact without re-acquiring it, and the SHA-256 in
+the chain-of-custody header is only verifiable against the artifact it was computed from.
+A report whose hash nobody can check is worth less.
 
-The application does not need the file after a job completes: `report.render()` builds
-from stored results and job metadata alone and never reopens the artifact. What retention
-does buy is genuinely forensic — re-analysis without re-acquiring, and the SHA-256 in the
-chain-of-custody header is only checkable against the artifact it was computed from.
+**There is no purge mechanism, no retention window and no delete route, by choice.** Do
+not add one as a tidy-up — removing evidence is a policy change, not housekeeping.
 
-The cost is a memory capture per job, at ~2 GB each, kept forever, on top of the 2×
-transient documented in §10. Two defensible resolutions, either of which makes it a
-decision: **keep** retention and say so in the docs plus the report's custody section, or
-add an explicit retention window with an audit-logged purge. Not urgent — a lab tool with
-two analysts will not fill a disk this semester — but it should not stay accidental.
+Cost, stated rather than avoided: ~2 GB per memory capture, kept forever, on top of the 2×
+transient during upload (CLAUDE.md §10). A two-analyst lab tool will not fill a disk this
+semester; if it ever matters, the answer is more disk or a policy change made on purpose.
+
+The application itself never needs the artifact again — `report.render()` builds from
+stored results and job metadata and never reopens it. Retention serves the analyst.
+Disclosed in the report: the chain-of-custody section carries a "Retention" row naming the
+stored artifact, so a reader of the report knows the evidence was kept and under what name.
 
 ## Running it
 
