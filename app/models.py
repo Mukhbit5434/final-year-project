@@ -60,6 +60,12 @@ class Job(db.Model):
     status = db.Column(db.String(16), default=PENDING, nullable=False, index=True)
     error = db.Column(db.Text)
 
+    # Extraction reports what it is doing from inside the worker process; the
+    # supervisor copies it here so the page has something to show for the several
+    # minutes a real artifact takes. Null pct means "working, total unknown".
+    stage = db.Column(db.String(80))
+    progress_pct = db.Column(db.Integer)
+
     created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
     started_at = db.Column(db.DateTime)
     finished_at = db.Column(db.DateTime)

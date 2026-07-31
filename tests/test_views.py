@@ -1,0 +1,148 @@
+import json
+
+from app import jobs
+from app.db import db
+from app.models import COMPLETED, DISK, Job, Result
+
+
+def test_landing_is_public_and_names_the_disk_metric(client):
+    body = client.get("/").get_data(as_text=True)
+    assert "Automated malware analysis" in body
+    # The headline figure on a public page has to be the defensible one.
+    assert "0.9940" in body
+
+
+def test_landing_carries_the_triage_framing(client):
+    assert "triage tool" in client.get("/").get_data(as_text=True).lower()
+
+
+def test_index_sends_a_signed_in_analyst_to_the_dashboard(client, signed_in):
+    r = client.get("/")
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/dashboard")
+
+
+def test_dashboard_renders_empty(client, signed_in):
+    body = client.get("/dashboard").get_data(as_text=True)
+    assert "Artifacts analysed" in body
+    assert "No jobs yet." in body
+
+
+def test_dashboard_totals_only_count_completed_jobs(client, signed_in, analyst):
+    done = Job(user=analyst, filename="a.dd", stored_name="v1.dd", sha256="a" * 64,
+               size_bytes=2 * 1024 ** 3, artifact=DISK, status=COMPLETED,
+               files_scanned=3817, files_flagged=2)
+    running = Job(user=analyst, filename="b.dd", stored_name="v2.dd", sha256="b" * 64,
+                  size_bytes=1024 ** 3, artifact=DISK, status="RUNNING",
+                  files_scanned=999, files_flagged=9)
+    db.session.add_all([done, running])
+    db.session.commit()
+
+    body = client.get("/dashboard").get_data(as_text=True)
+    assert "3,817" in body
+    assert "999" not in body
+
+
+def test_dashboard_is_private(client):
+    assert client.get("/dashboard").status_code in (302, 401)
+
+
+def test_jobs_list_shows_worst_severity(client, signed_in, analyst):
+    job = Job(user=analyst, filename="c.dd", stored_name="v3.dd", sha256="c" * 64,
+              size_bytes=1024, artifact=DISK, status=COMPLETED)
+    db.session.add(job)
+    db.session.add(Result(job=job, probability=0.9, threshold=0.5, malicious=True,
+                          severity="High"))
+    db.session.add(Result(job=job, probability=0.1, threshold=0.5, malicious=False,
+                          severity="Low"))
+    db.session.commit()
+
+    body = client.get("/jobs").get_data(as_text=True)
+    assert "badge-sev sev-High" in body
+    assert "sev-Low" not in body
+
+
+def test_upload_page_states_the_runtime_and_the_scope(client, signed_in):
+    body = client.get("/upload").get_data(as_text=True)
+    # Hard rule 10: never imply this is a seconds-long operation.
+    assert "minutes, not seconds" in body
+    assert "Windows 10 x64 only" in body
+
+
+def test_disk_job_detail_renders_the_per_file_table(client, signed_in, db, analyst):
+    from tests.test_report import disk_job
+
+    job = disk_job(db, analyst)
+    body = client.get(f"/jobs/{job.id}").get_data(as_text=True)
+    assert "packed.exe" in body
+    assert "b" * 64 in body, "hard rule 16: path and hash must reach the analyst"
+    assert "Scope and limitations" in body
+
+
+def test_memory_job_detail_leads_with_observations_not_the_score(client, signed_in,
+                                                                db, analyst):
+    """Hard rule 22. The OOD warning must sit above the probability on the page."""
+    from tests.test_report import memory_job
+
+    job = memory_job(db, analyst)
+    body = client.get(f"/jobs/{job.id}").get_data(as_text=True)
+
+    assert "21 of 55 features fall outside" in body
+    assert "secondary for memory captures" in body
+    assert body.index("forensic indicator") < body.index("0.0084")
+
+
+def test_a_running_job_shows_its_stage(client, signed_in, db, analyst):
+    job = Job(user=analyst, filename="e.raw", stored_name="v5.raw", sha256="e" * 64,
+              size_bytes=1024, artifact=DISK, status="RUNNING",
+              stage="Running windows.malfind (5 of 9)", progress_pct=45)
+    db.session.add(job)
+    db.session.commit()
+
+    body = client.get(f"/jobs/{job.id}").get_data(as_text=True)
+    assert "Running windows.malfind (5 of 9)" in body
+    assert "width: 45%" in body
+
+
+def test_progress_round_trip(tmp_path):
+    """The worker writes and the supervisor reads through a file, because the two
+    sides are different processes with no shared session."""
+    pf = tmp_path / "7.json"
+    report = jobs._reporter(str(pf))
+
+    report("Running windows.pslist (1 of 9)", 5)
+    assert json.loads(pf.read_text()) == {"stage": "Running windows.pslist (1 of 9)",
+                                          "pct": 5}
+
+    report("Assembling the feature vector", 97)
+    assert json.loads(pf.read_text())["pct"] == 97
+
+
+def test_progress_reporter_is_a_no_op_without_a_file():
+    jobs._reporter(None)("anything", 50)
+
+
+def test_await_copies_progress_onto_the_job(db, analyst, tmp_path):
+    class SlowFuture:
+        """Times out twice so the supervisor has to poll before the value lands."""
+
+        def __init__(self):
+            self.calls = 0
+
+        def result(self, timeout=None):
+            self.calls += 1
+            if self.calls < 3:
+                raise jobs.TimeoutError()
+            return "done"
+
+    job = Job(user=analyst, filename="d.raw", stored_name="v4.raw",
+              sha256="d" * 64, size_bytes=1024, artifact=DISK, status="RUNNING")
+    db.session.add(job)
+    db.session.commit()
+
+    pf = tmp_path / f"{job.id}.json"
+    jobs._reporter(str(pf))("Running windows.handles (3 of 9)", 25)
+
+    assert jobs._await(job, SlowFuture(), pf) == "done"
+    assert job.stage == "Running windows.handles (3 of 9)"
+    assert job.progress_pct == 25

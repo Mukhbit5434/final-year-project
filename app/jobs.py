@@ -1,6 +1,7 @@
 import json
 import logging
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, TimeoutError
+from pathlib import Path
 
 from .db import db
 from .models import (COMPLETED, DISK, FAILED, MEMORY, RUNNING, Finding, Job,
@@ -25,9 +26,34 @@ def pool():
     return _pool
 
 
-def extract_disk(path, max_files, max_bytes):
+def _reporter(progress_file):
+    """Progress crosses a process boundary, so it goes through a file.
+
+    The worker has no application context and no database session, and the
+    supervisor is blocked on the future, so neither can hand the other a value
+    directly. A tiny JSON file each side touches independently is enough, and it
+    beats standing up a Manager process for two fields.
+    """
+    path = Path(progress_file) if progress_file else None
+
+    def report(stage, pct=None):
+        if path is None:
+            return
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"stage": stage, "pct": pct}))
+        tmp.replace(path)
+
+    return report
+
+
+def extract_disk(path, max_files, max_bytes, progress_file=None):
     from .extractors import disk
-    out = disk.scan(path, max_files=max_files, max_bytes=max_bytes, workers=2)
+
+    report = _reporter(progress_file)
+    report("Walking the filesystem")
+    out = disk.scan(path, max_files=max_files, max_bytes=max_bytes, workers=2,
+                    progress=lambda n, p: report(f"Vectorising executable {n}"))
+    report("Scoring executables")
     # Vectors come back as float32 arrays; lists survive pickling between
     # interpreter versions more predictably and this is not a hot path.
     for rec in out["files"]:
@@ -35,9 +61,51 @@ def extract_disk(path, max_files, max_bytes):
     return out
 
 
-def extract_memory(path, feature_names):
+def extract_memory(path, feature_names, progress_file=None):
     from .extractors import memory
-    return memory.extract(path, feature_names)
+
+    report = _reporter(progress_file)
+    report("Building the kernel layer", 2)
+    total = len(memory.PLUGINS)
+    seen = [0]
+
+    def stage(key, plugin):
+        seen[0] += 1
+        report(f"Running {plugin} ({seen[0]} of {total})",
+               int(5 + 90 * (seen[0] - 1) / total))
+
+    out = memory.extract(path, feature_names, progress=stage)
+    report("Assembling the feature vector", 97)
+    return out
+
+
+def _await(job, future, progress_file):
+    """Block on the extraction future, copying its progress file into the job.
+
+    The supervisor thread has nothing else to do while extraction runs, so a
+    one-second timeout on result() doubles as the poll interval - no sleep loop
+    and no second thread.
+    """
+    last = None
+    while True:
+        try:
+            return future.result(timeout=1.0)
+        except TimeoutError:
+            try:
+                cur = json.loads(progress_file.read_text())
+            except (OSError, ValueError):
+                continue
+            if cur != last:
+                last = cur
+                job.stage = cur["stage"]
+                job.progress_pct = cur["pct"]
+                db.session.commit()
+
+
+def _progress_file(app, job_id):
+    d = Path(app.instance_path) / "progress"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"{job_id}.json"
 
 
 def start(app, job_id):
@@ -73,8 +141,11 @@ def run(app, job_id):
             job.error = f"{type(e).__name__}: {e}"[:2000]
         finally:
             job.finished_at = utcnow()
+            job.stage = None
+            job.progress_pct = None
             db.session.commit()
             db.session.remove()
+            _progress_file(app, job_id).unlink(missing_ok=True)
 
 
 def _findings(result, described, matched):
@@ -101,8 +172,9 @@ def _disk(app, job, path):
     from .inference import disk as model
 
     cfg = app.config
-    out = pool().submit(extract_disk, str(path), cfg["MAX_PE_FILES"],
-                        cfg["MAX_PE_BYTES"]).result()
+    pf = _progress_file(app, job.id)
+    out = _await(job, pool().submit(extract_disk, str(path), cfg["MAX_PE_FILES"],
+                                    cfg["MAX_PE_BYTES"], str(pf)), pf)
 
     names = model.names()
     flagged = 0
@@ -145,7 +217,8 @@ def _memory(app, job, path):
     from .inference import memory as model
 
     names = model.names()
-    out = pool().submit(extract_memory, str(path), names).result()
+    pf = _progress_file(app, job.id)
+    out = _await(job, pool().submit(extract_memory, str(path), names, str(pf)), pf)
     vec = out["vec"]
 
     prob, malicious = model.predict(vec)

@@ -14,7 +14,7 @@ DISK_THRESHOLD = 0.5010602922493019
 MEM_THRESHOLD = 0.2336726188659668
 
 
-def fake_disk_scan(_path, _max_files, _max_bytes):
+def fake_disk_scan(_path, _max_files, _max_bytes, _progress_file=None):
     return {
         "examined": 3817,
         "pe_found": 2,
@@ -35,7 +35,7 @@ def fake_disk_scan(_path, _max_files, _max_bytes):
     }
 
 
-def fake_memory_extract(_path, names):
+def fake_memory_extract(_path, names, _progress_file=None):
     return {
         "vec": [0.0] * len(names),
         "gaps": [{"field": "psxview.not_in_session", "plugin": "psxview",
@@ -53,7 +53,9 @@ class FakeFuture:
     def __init__(self, value):
         self._value = value
 
-    def result(self):
+    def result(self, timeout=None):
+        # The supervisor polls with a timeout so it can copy progress across;
+        # a fake that ignores it would not exercise the real call.
         return self._value
 
 
@@ -200,7 +202,10 @@ def test_status_endpoint_is_counts_only(client, signed_in):
 
     body = client.get(f"/jobs/{job.id}/status").get_json()
     assert set(body) == {"id", "status", "error", "done", "duration",
+                         "stage", "progress_pct",
                          "files_scanned", "files_flagged", "ood_count", "results"}
+    # stage names the plugin or the step, never the file it is working on - the
+    # per-file table is what the detail page is for.
     assert "path" not in str(body)
 
 

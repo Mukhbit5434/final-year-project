@@ -3,19 +3,32 @@
 
 {% block content %}
 <div class="row justify-content-center">
-  <div class="col-lg-7">
-    <h1 class="h4 mb-3">Upload artifact</h1>
+  <div class="col-lg-8">
+    <h1 class="h4 mb-1">Upload artifact</h1>
+    <p class="text-body-secondary small mb-4">
+      A disk image or a memory capture. Extraction runs on this machine; nothing leaves it.
+    </p>
 
     <form method="post" enctype="multipart/form-data" novalidate>
       {{ form.hidden_tag() }}
 
-      <div class="mb-3">
-        {{ form.artifact_file.label(class="form-label") }}
-        {{ form.artifact_file(class="form-control") }}
-        <div class="form-text">
-          Raw disk images (.dd, .raw, .img), EWF containers (.E01, .EX01), or memory
-          dumps (.mem, .dmp, .vmem, .raw). Maximum {{ max_gb }} GB.
+      <label class="fx-drop mb-1" id="drop">
+        {{ form.artifact_file(id="fileInput") }}
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.4" aria-hidden="true" class="text-body-secondary">
+          <path d="M12 16V4m0 0L8 8m4-4 4 4"/>
+          <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>
+        </svg>
+        <div class="mt-2" id="dropLabel">
+          <strong>Choose a file</strong> or drag it here
         </div>
+        <div class="small text-body-secondary mt-1">
+          .dd .raw .img .E01 .EX01 · .mem .dmp .vmem — up to {{ max_gb }} GB
+        </div>
+      </label>
+      <div class="form-text mb-3">
+        Detection reads the file's contents, not its extension. A raw memory dump has no
+        identifying header, so if the file is ambiguous you will be asked which it is.
       </div>
 
       <fieldset class="mb-3">
@@ -26,19 +39,66 @@
             {{ choice.label(class="form-check-label") }}
           </div>
         {% endfor %}
-        <div class="form-text">
-          Detection reads the file's contents, not its extension. A raw memory dump has
-          no identifying header, so if the file is ambiguous you will be asked.
-        </div>
       </fieldset>
 
       {{ form.submit(class="btn btn-primary") }}
     </form>
 
-    <div class="alert alert-secondary mt-4 small mb-0">
-      Uploaded artifacts are stored outside the web root and are never served back over
-      HTTP. They are read for analysis only and are never executed.
+    <div class="row g-3 mt-3">
+      <div class="col-md-6">
+        <div class="fx-note fx-note-warn h-100">
+          <strong>This takes minutes, not seconds.</strong>
+          Roughly 3.5 to 7 minutes for a 2 GB memory capture, depending on the machine;
+          a disk image depends on how many executables it holds. The job page shows the
+          stage it has reached.
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="fx-note h-100">
+          <strong>Memory input is Windows 10 x64 only.</strong>
+          The memory pipeline is calibrated against one controlled reference machine.
+          Captures of any other architecture are refused rather than analysed.
+        </div>
+      </div>
+    </div>
+
+    <div class="fx-note mt-3">
+      <strong>Evidence handling.</strong> Uploaded artifacts are stored outside the web
+      root, are never served back over HTTP, and are never executed — they are read for
+      analysis only. They are retained indefinitely so the recorded SHA-256 stays
+      verifiable against the file it was computed from.
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const drop = document.getElementById("drop");
+const input = document.getElementById("fileInput");
+const label = document.getElementById("dropLabel");
+
+const show = () => {
+  if (!input.files.length) return;
+  const f = input.files[0];
+  label.innerHTML = `<strong>${f.name}</strong> · ${(f.size / 1024 ** 3).toFixed(2)} GB`;
+};
+
+input.addEventListener("change", show);
+
+["dragenter", "dragover"].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault();
+  drop.classList.add("fx-over");
+}));
+["dragleave", "drop"].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault();
+  drop.classList.remove("fx-over");
+}));
+drop.addEventListener("drop", ev => {
+  if (ev.dataTransfer.files.length) {
+    input.files = ev.dataTransfer.files;
+    show();
+  }
+});
+</script>
 {% endblock %}

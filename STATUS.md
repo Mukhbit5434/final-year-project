@@ -28,19 +28,20 @@ on *what exists*.
 
 **Disk** — CFReDS `2020JimmyWilson.E01`: 3,817 files examined, all 19 PE files found by
 content (including two named `.db` and `.regtrans-ms`), 13 unique after SHA-256 dedupe,
-0 flagged, 27 s. Correct: the image holds only signed Microsoft and OpenOffice binaries.
+0 flagged, 11–27 s. Correct: the image holds only signed Microsoft and OpenOffice binaries.
 
-**Memory x64** — `win10_memory.raw`, **409 s** through the job layer. Ground truth
+**Memory x64** — `win10_memory.raw`, **202–409 s** through the job layer. Ground truth
 measured inside the VM at capture time: processes 67 vs 67 exact, drivers 360 vs 362,
 services+drivers 632 vs 615. Extraction is correct in absolute terms; the training range
 really is far below reality. Clean capture scored **p=0.0084, severity Low** — correctly
 benign despite 21 of 55 features being out of range.
 
-**Runtime — resolved 2026-07-31.** Standalone extraction 401 s, end to end through the job
-layer 409 s, measured minutes apart on the same machine. **The job layer costs 8 s, about
-2%.** The old "2.3× overhead" compared two runs taken under different machine conditions —
-over the same period the disk artifact moved from ~11 s to 27 s on identical input. Quote
-**about 7 minutes** for a 2 GB capture.
+**Runtime — resolved 2026-07-31, range confirmed 2026-08-01.** Standalone extraction 401 s
+against 409 s end to end, minutes apart: **the job layer costs about 2%.** But the same
+memory job ran in **202 s** the next day, and the disk job has ranged 11–27 s on identical
+input — machine state moves this by 2×. Quote **3.5–7 minutes** for a 2 GB capture, never
+a single number. The old "2.3× overhead" was a fast standalone run compared against a slow
+job run.
 
 **Web** — every route returns against real data; PDFs render for both pipelines; uploaded
 artifacts are unreachable over HTTP.
@@ -90,6 +91,8 @@ set FLASK_APP=wsgi.py
 scripts\verify_pipeline.py                           # end-to-end against sample/
 scripts\scan_image.py <image>                        # disk extraction + predictions
 scripts\dump_memory_features.py <dump>               # 55 values vs training ranges
+scripts\predict_vector.py memory --csv <malmem.csv> --row 12
+scripts\predict_vector.py disk --reference 0         # one vector through inference
 ```
 
 `verify_pipeline.py` is the one that matters after any change to extraction, inference or
@@ -205,7 +208,8 @@ against the raw-byte path as well as the collapsed-text one.
 
 There was no discrepancy. Standalone 401 s vs 409 s through the job layer, same machine,
 minutes apart: the job layer adds 2%. The old figures were taken under different machine
-conditions and were never comparable.
+conditions and were never comparable — confirmed the next day when the same job ran in
+202 s, which is roughly the original "standalone" figure the penalty was inferred from.
 
 ## Demo plan
 
@@ -227,13 +231,27 @@ conditions and were never comparable.
 3. **A known-malicious row from EMBER's test set** fed straight through the disk inference
    path — a genuine true positive on real malware data, with no malware files handled.
 
-**Prerequisite — already satisfied at the inference layer.** `memory.predict(vec)` takes a
-55-vector and `disk.predict(vec_150)` takes a 150-vector directly; `disk.subset()` reduces
-a 2381-vector when needed. The existing tests already drive both this way with hand-built
-and reference-row vectors, so demos 1 and 3 need no new inference capability. What does
-not exist is an **application entry point** for a raw vector — the web app only accepts
-artifact uploads. A small script or route is needed to feed a stored vector through and
-render a result. That is the only build work these demos require.
+**Prerequisite — built 2026-08-01.** `scripts/predict_vector.py` is the entry point for a
+raw vector. It runs the same loaders, thresholds, LIME explainer, tag table and severity
+functions the job layer uses, so it demonstrates the shipped path rather than a
+reimplementation. Sources: `--csv` (CIC-MalMem-2022 export, matched **by column name**,
+never positionally), `--npy`, or `--reference N`.
+
+Verified on both pipelines: memory reference row 41 → p=0.0028, **0 of 55 out of range**,
+severity Low; disk reference row 0 → p=0.8226, MALWARE, severity Medium, with LIME
+findings and MITRE tags. The contrast that matters for demo 1 is the OOD count — 0 on an
+in-distribution row against 21 on a real capture.
+
+**What is still missing is labelled held-out data.** `reference_data/` rows are
+*unlabelled training samples*; the script says so on every `--reference` run and must not
+be presented as a verified true positive. Demos 1 and 3 need a CIC-MalMem-2022 CSV row and
+an EMBER test row respectively, neither of which is in the repo.
+
+**A web route for this was considered and rejected.** Rendering a vector result through
+the job pages would mean creating a `Job` row with a fabricated `stored_name`, `sha256`
+and size, which would put false chain-of-custody data — including the retention line —
+into a forensic report. Not worth it for a demo convenience; the script is the honest
+form.
 
 ## The exact next task
 

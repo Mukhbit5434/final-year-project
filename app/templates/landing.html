@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Automated Malware Analysis{% endblock %}
+
+{% block shell %}
+<div class="fx-hero-landing">
+  <div class="container">
+    <div class="row align-items-center g-4">
+      <div class="col-lg-7">
+        <p class="fx-kicker mb-2">Automated malware analysis</p>
+        <h1 class="mb-3">Disk and memory forensics,<br>from artifact to report.</h1>
+        <p class="text-body-secondary mb-4" style="max-width: 46rem;">
+          Upload a raw disk image or a memory capture. The system extracts the features
+          itself, runs them through a pre-trained model, and produces an analyst-readable
+          report explaining what was found and why — no Volatility, no Sleuth Kit, no
+          feature CSVs by hand.
+        </p>
+        <a class="btn btn-primary" href="{{ url_for('auth.register') }}">Create an account</a>
+        <a class="btn btn-outline-secondary ms-2" href="{{ url_for('auth.login') }}">Sign in</a>
+      </div>
+      <div class="col-lg-5">
+        <div class="card">
+          <div class="card-header">Validated performance</div>
+          <div class="card-body">
+            <dl class="facts row mb-0">
+              <dt class="col-7">Disk model ROC-AUC</dt>
+              <dd class="col-5 num text-end mb-2">0.9940</dd>
+              <dt class="col-7">False-positive rate</dt>
+              <dd class="col-5 num text-end mb-2">0.0303</dd>
+              <dt class="col-7">Features used</dt>
+              <dd class="col-5 num text-end mb-2">150 of 2,381</dd>
+              <dt class="col-7">EMBER test rows</dt>
+              <dd class="col-5 num text-end mb-0">200,000</dd>
+            </dl>
+            <p class="fx-stat-note mt-3 mb-0">
+              Measured on the held-out EMBER 2018 test set, 0.0024 below the official
+              baseline while using 6% of its features.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="container py-5">
+  <div class="row g-3">
+    <div class="col-md-4">
+      <div class="fx-pipe">
+        <h3>Disk pipeline</h3>
+        <ul>
+          <li>Walks the filesystem with pytsk3, raw or E01</li>
+          <li>Finds executables by content, never by extension</li>
+          <li>2,381 EMBER features reduced to 150</li>
+          <li>One verdict per file, with path, SHA-256 and MACB times</li>
+        </ul>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="fx-pipe">
+        <h3>Memory pipeline</h3>
+        <ul>
+          <li>Nine Volatility 3 plugins, 55 features</li>
+          <li>Injected regions, hidden modules, rootkit artifacts</li>
+          <li>Evidence-led: observations first, model score second</li>
+          <li>Every capture carries an out-of-distribution check</li>
+        </ul>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="fx-pipe">
+        <h3>Reporting</h3>
+        <ul>
+          <li>Indicator tags mapped to MITRE ATT&amp;CK</li>
+          <li>Deterministic, visible severity scoring</li>
+          <li>PDF report plus CSV and JSON export</li>
+          <li>A limitations section that is never optional</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="fx-note mt-4">
+    <strong>This is a triage tool.</strong> It narrows an investigation to the artifacts
+    worth a human's attention; it does not produce conclusive findings. Flagged items
+    warrant manual verification, and MITRE mappings are investigative leads inferred from
+    statistical indicators rather than observed runtime behaviour.
+  </div>
+</div>
+{% endblock %}

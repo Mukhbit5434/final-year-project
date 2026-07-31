@@ -475,21 +475,23 @@ Volatility 3 resolves Windows kernel symbols by downloading PDB-derived ISF JSON
 offline machine memory extraction fails with a confusing symbol error. **Pre-populate the
 symbol cache** for the builds being analysed, ship it alongside the app, and document it.
 
-**Runtime is measured, and the earlier "2.3× job-layer overhead" was not real.** Measured
-2026-07-31 on the 2 GB x64 capture with the symbol cache warm, both figures taken minutes
-apart on the same machine:
+**Runtime varies by 2× with machine state, and the "2.3× job-layer overhead" was never
+real.** Measured on the same 2 GB x64 capture, same machine, symbol cache warm:
 
-| | |
-|---|---:|
-| Standalone extraction (`dump_memory_features.py`) | 401 s |
-| End to end through the job layer (`verify_pipeline.py`) | **409 s** |
+| Run | Memory job | Disk job |
+|---|---:|---:|
+| 2026-07-31, standalone extraction | 401 s | — |
+| 2026-07-31, through the job layer | 409 s | 27 s |
+| 2026-08-01, through the job layer | **202 s** | 14 s |
 
-**The job layer costs 8 s, about 2%.** An earlier draft inferred a 2.3× job-layer penalty
-by comparing two runs taken under different machine conditions; over the same period the
-disk artifact moved from ~11 s to 27 s on identical input. There was never an overhead to
-explain. Measure both halves in one sitting or not at all.
+**The job layer costs about 2%** — 401 s standalone against 409 s end to end, taken
+minutes apart. What moves the number is the machine, not the code: the same work took
+202 s and 409 s on two runs a day apart, and the disk artifact ranged 11–27 s on identical
+input. An earlier draft compared a fast standalone run against a slow job run and inferred
+a penalty that does not exist. Measure both halves in one sitting or not at all.
 
-Quote **about 7 minutes** for a 2 GB memory capture end to end, not 6–8, and not 3.5.
+Quote **3.5 to 7 minutes** for a 2 GB memory capture, and never a single figure — one
+number here is measurement noise dressed up as a specification.
 
 The first run on an unseen build adds ~4 minutes of ISF download on top. Runtime scales
 with dump size and process count, and a large multi-socket capture will be far slower.
@@ -1394,8 +1396,23 @@ app/
   report.py              limitations() + render(); REQUIRED_* mandatory strings
 baselines/clean_win10_x64.json    the reference capture and its ground truth
 scripts/                 setup_env, check_env, patch_ember, scan_image,
-                         dump_memory_features
+                         dump_memory_features, predict_vector
 ```
+
+**The UI is Bootstrap plus one stylesheet of our own.** `static/app.css` holds the design
+tokens (`--fx-*`), the severity colour scale used by both the badges and the Chart.js
+doughnuts, and the panel/stat/hero primitives. Severity colours are defined once there and
+mirrored in the two inline chart scripts — change both together. `templates/base.html` is
+the shell; `landing.html` is the only public page.
+
+**Job progress crosses a process boundary through a file.** The extractor runs in the
+worker pool with no app context and no session, and the supervisor is blocked on the
+future, so neither can hand the other a value. `jobs._reporter` writes
+`instance/progress/<job_id>.json` from the worker and `jobs._await` reads it while
+blocking on `future.result(timeout=1.0)` — the timeout doubles as the poll interval, so
+there is no sleep loop and no second thread. `Job.stage` and `Job.progress_pct` hold the
+result; both are cleared when the job settles. Keep the stage text free of file paths:
+`/status` is asserted not to leak them.
 
 **Three mechanisms a fresh session will otherwise re-derive the hard way:**
 

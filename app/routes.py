@@ -20,8 +20,37 @@ bp = Blueprint("main", __name__)
 @bp.route("/")
 def index():
     if current_user.is_authenticated:
-        return redirect(url_for("main.jobs"))
-    return redirect(url_for("auth.login"))
+        return redirect(url_for("main.dashboard"))
+    return render_template("landing.html")
+
+
+@bp.route("/dashboard")
+@login_required
+def dashboard():
+    from .models import COMPLETED, Result
+
+    rows = (db.session.query(Job)
+            .filter_by(user_id=current_user.id)
+            .order_by(Job.created_at.desc())
+            .all())
+    done = [j for j in rows if j.status == COMPLETED]
+
+    sev = Counter()
+    for r in (db.session.query(Result)
+              .join(Job).filter(Job.user_id == current_user.id).all()):
+        sev[r.severity or "Unrated"] += 1
+
+    stats = {
+        "jobs": len(rows),
+        "running": sum(1 for j in rows if j.status in ("PENDING", "RUNNING")),
+        "disk": sum(1 for j in done if j.artifact == DISK),
+        "memory": sum(1 for j in done if j.artifact == MEMORY),
+        "files": sum(j.files_scanned or 0 for j in done),
+        "flagged": sum(j.files_flagged or 0 for j in done),
+        "bytes": sum(j.size_bytes or 0 for j in done),
+    }
+    return render_template("dashboard.html", stats=stats, recent=rows[:8],
+                           severity_counts=sev)
 
 
 @bp.route("/jobs")
@@ -31,7 +60,10 @@ def jobs():
             .filter_by(user_id=current_user.id)
             .order_by(Job.created_at.desc())
             .all())
-    return render_template("jobs.html", jobs=rows)
+    worst = {j.id: max((r.severity for r in j.results if r.severity),
+                       key=lambda s: SEVERITY_ORDER.get(s, 0), default=None)
+             for j in rows}
+    return render_template("jobs.html", jobs=rows, worst=worst)
 
 
 @bp.route("/jobs/<int:job_id>")
@@ -47,6 +79,7 @@ def job_detail(job_id):
     counts = Counter(r.severity or "Unrated" for r in results)
     return render_template("job_detail.html", job=job, results=results,
                            severity_counts=counts, baseline=baseline.info(),
+                           severity_rank=lambda s: SEVERITY_ORDER.get(s, 0),
                            limitations=report.limitations(job))
 
 
@@ -117,6 +150,7 @@ def job_status(job_id):
     # polls this every few seconds until the job settles.
     return {"id": job.id, "status": job.status, "error": job.error,
             "done": job.done, "duration": job.duration,
+            "stage": job.stage, "progress_pct": job.progress_pct,
             "files_scanned": job.files_scanned, "files_flagged": job.files_flagged,
             "ood_count": job.ood_count, "results": len(job.results)}
 

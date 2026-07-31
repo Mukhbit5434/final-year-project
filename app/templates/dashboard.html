@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <div>
+    <h1 class="h4 mb-1">Dashboard</h1>
+    <p class="text-body-secondary small mb-0">Signed in as {{ current_user.username }}</p>
+  </div>
+  <a class="btn btn-sm btn-primary ms-auto" href="{{ url_for('main.upload') }}">
+    Upload artifact
+  </a>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="fx-stat">
+      <div class="fx-stat-label">Artifacts analysed</div>
+      <div class="fx-stat-value">{{ stats.disk + stats.memory }}</div>
+      <div class="fx-stat-note">{{ stats.disk }} disk · {{ stats.memory }} memory</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="fx-stat">
+      <div class="fx-stat-label">Executables examined</div>
+      <div class="fx-stat-value">{{ '{:,}'.format(stats.files) }}</div>
+      <div class="fx-stat-note">across every completed disk image</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="fx-stat">
+      <div class="fx-stat-label">Flagged</div>
+      <div class="fx-stat-value {{ 'sev-High' if stats.flagged else '' }}">
+        {{ stats.flagged }}
+      </div>
+      <div class="fx-stat-note">crossed the detection threshold</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="fx-stat">
+      <div class="fx-stat-label">Evidence held</div>
+      <div class="fx-stat-value">{{ '%.1f'|format(stats.bytes / 1024**3) }}<span
+        class="fs-6 text-body-secondary"> GB</span></div>
+      <div class="fx-stat-note">retained by policy, never served</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card h-100">
+      <div class="card-header">Severity distribution</div>
+      <div class="card-body">
+        {% if severity_counts %}
+          <canvas id="sevChart" height="200"></canvas>
+        {% else %}
+          <p class="text-body-secondary small mb-0">
+            Nothing analysed yet. Severity appears here once a job completes.
+          </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card h-100">
+      <div class="card-header">Recent jobs</div>
+      <div class="card-body p-0">
+        {% if not recent %}
+          <div class="fx-empty py-4">
+            <p class="mb-2">No jobs yet.</p>
+            <a class="btn btn-sm btn-primary" href="{{ url_for('main.upload') }}">
+              Upload your first artifact
+            </a>
+          </div>
+        {% else %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th class="ps-3">Artifact</th><th>Type</th>
+                <th>Status</th><th class="text-end pe-3">Uploaded</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for job in recent %}
+              <tr>
+                <td class="ps-3">
+                  <a class="fx-row-link"
+                     href="{{ url_for('main.job_detail', job_id=job.id) }}">
+                    {{ job.filename }}
+                  </a>
+                </td>
+                <td class="text-body-secondary small">{{ job.artifact or '—' }}</td>
+                <td><span class="fx-status status-{{ job.status }}">{{ job.status }}</span></td>
+                <td class="text-end pe-3 small text-body-secondary">
+                  {{ job.created_at.strftime('%Y-%m-%d %H:%M') }}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+      {% if recent %}
+      <div class="card-footer bg-transparent border-top-0 py-2">
+        <a class="small" href="{{ url_for('main.jobs') }}">All jobs →</a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if severity_counts %}
+<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
+<script>
+const SEV = {"Critical":"#f4516c","High":"#f0932b","Medium":"#4cc9e6",
+             "Low":"#6b7c93","Unrated":"#3d4a5c"};
+const labels = {{ severity_counts.keys()|list|tojson }};
+new Chart(document.getElementById("sevChart"), {
+  type: "doughnut",
+  data: {
+    labels: labels,
+    datasets: [{
+      data: {{ severity_counts.values()|list|tojson }},
+      backgroundColor: labels.map(l => SEV[l] || "#3d4a5c"),
+      borderColor: "#141a22", borderWidth: 2
+    }]
+  },
+  options: {
+    cutout: "62%",
+    plugins: { legend: { position: "bottom",
+                         labels: { color: "#8b98a8", boxWidth: 12, padding: 14 } } }
+  }
+});
+</script>
+{% endif %}
+{% endblock %}

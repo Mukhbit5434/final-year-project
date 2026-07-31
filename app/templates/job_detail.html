@@ -2,18 +2,20 @@
 {% block title %}Job {{ job.id }}{% endblock %}
 
 {% macro sev_badge(s) %}
-  {% set cls = {'Critical':'danger','High':'warning','Medium':'info','Low':'secondary'} %}
-  <span class="badge text-bg-{{ cls.get(s, 'secondary') }}">{{ s or 'Unrated' }}</span>
+  <span class="badge-sev sev-{{ s or 'Low' }}">{{ s or 'Unrated' }}</span>
 {% endmacro %}
 
 {% block content %}
-<div class="d-flex align-items-start mb-1">
-  <div>
-    <h1 class="h4 mb-1">{{ job.filename }}</h1>
-    <p class="status-{{ job.status }} mb-0">{{ job.status }}</p>
+{% set worst = results[0].severity if results else None %}
+
+<div class="d-flex align-items-start flex-wrap gap-2 mb-3">
+  <div class="text-truncate">
+    <h1 class="h4 mb-1 text-truncate">{{ job.filename }}</h1>
+    <span class="fx-status status-{{ job.status }}">{{ job.status }}</span>
+    <span class="text-body-secondary small ms-2">job {{ job.id }}</span>
   </div>
   {% if job.done and results %}
-  <div class="ms-auto">
+  <div class="ms-auto d-flex gap-2">
     <a class="btn btn-sm btn-outline-secondary"
        href="{{ url_for('main.export', job_id=job.id, fmt='csv') }}">CSV</a>
     <a class="btn btn-sm btn-outline-secondary"
@@ -25,25 +27,89 @@
 </div>
 
 {% if job.status == 'NEEDS_TYPE' %}
-  <div class="alert alert-warning mt-3">
+  <div class="alert alert-warning">
     This artifact could not be identified from its contents.
     <a href="{{ url_for('main.confirm_type', job_id=job.id) }}">Tell us what it is</a>
     before analysis can start.
   </div>
 {% endif %}
 
-<div class="row mt-3 g-3">
+{% if job.error %}
+  <div class="alert alert-danger"><strong>Analysis failed.</strong> {{ job.error }}</div>
+{% endif %}
+
+{% if not job.done and job.status in ('PENDING', 'RUNNING') %}
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="d-flex align-items-center mb-2">
+      <strong id="stageText">{{ job.stage or 'Queued' }}</strong>
+      <span class="ms-auto small text-body-secondary" id="elapsed"></span>
+    </div>
+    <div class="progress mb-2">
+      <div id="stageBar" class="progress-bar progress-bar-striped progress-bar-animated"
+           style="width: {{ job.progress_pct }}%"></div>
+    </div>
+    <p class="small text-body-secondary mb-0">
+      Extraction runs out of process and takes minutes, not seconds — roughly 3.5 to 7
+      for a 2 GB memory capture, depending on the machine. This page updates itself.
+    </p>
+  </div>
+</div>
+{% endif %}
+
+{% if results %}
+<div class="fx-hero mb-3">
+  <div class="d-flex gap-3">
+    <div class="fx-hero-rule bg-sev-{{ worst or 'Low' }}"></div>
+    <div class="flex-grow-1">
+      <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+        <span class="fx-hero-verdict sev-{{ worst or 'Low' }}">{{ worst or 'Unrated' }}</span>
+        <span class="text-body-secondary">severity</span>
+        {% if job.artifact == 'disk' %}
+          <span class="ms-auto small text-body-secondary">
+            {{ job.files_flagged or 0 }} of {{ results|length }} executable(s) flagged ·
+            {{ '{:,}'.format(job.files_scanned or 0) }} files examined
+          </span>
+        {% endif %}
+      </div>
+
+      {% if job.artifact == 'memory' %}
+        {# Hard rule 22: memory leads with what was observed, never the probability. #}
+        <p class="mb-2">
+          {{ results[0].findings|length }} forensic indicator(s) observed in this capture.
+          {{ results[0].severity_note or '' }}
+        </p>
+        {% if job.ood_count is not none %}
+        <div class="fx-note fx-note-warn">
+          <strong>Model verdict is secondary for memory captures.</strong>
+          {{ job.ood_count }} of 55 features fall outside the range observed in the
+          training data, so the model is extrapolating and its probability
+          ({{ '%.4f'|format(results[0].probability) }}) is reported for reference only.
+          The findings below are Volatility's direct measurements of this dump and do not
+          depend on it.
+        </div>
+        {% endif %}
+      {% else %}
+        <p class="mb-0">
+          {{ results[0].severity_note or 'No indicator categories matched.' }}
+        </p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-3 mb-3">
   <div class="col-lg-7">
     <div class="card h-100">
       <div class="card-header">Chain of custody</div>
       <div class="card-body">
         <dl class="facts row mb-0">
-          <dt class="col-sm-4">Job ID</dt><dd class="col-sm-8">{{ job.id }}</dd>
           <dt class="col-sm-4">Analyst</dt><dd class="col-sm-8">{{ job.user.username }}</dd>
           <dt class="col-sm-4">Uploaded</dt>
           <dd class="col-sm-8">{{ job.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</dd>
           <dt class="col-sm-4">Size</dt>
-          <dd class="col-sm-8 mono">{{ '{:,}'.format(job.size_bytes) }} bytes</dd>
+          <dd class="col-sm-8 num">{{ '{:,}'.format(job.size_bytes) }} bytes</dd>
           <dt class="col-sm-4">SHA-256</dt><dd class="col-sm-8 hash">{{ job.sha256 }}</dd>
           <dt class="col-sm-4">Artifact</dt>
           <dd class="col-sm-8">{{ job.artifact or 'undetermined' }}
@@ -55,10 +121,10 @@
             <dt class="col-sm-4">Analysis time</dt>
             <dd class="col-sm-8">{{ '%.1f'|format(job.duration / 60) }} minutes</dd>
           {% endif %}
-          {% if job.error %}
-            <dt class="col-sm-4">Error</dt>
-            <dd class="col-sm-8 text-danger">{{ job.error }}</dd>
-          {% endif %}
+          <dt class="col-sm-4">Retention</dt>
+          <dd class="col-sm-8 mb-0">
+            Retained on this host as <span class="hash">{{ job.stored_name }}</span>
+          </dd>
         </dl>
       </div>
     </div>
@@ -67,54 +133,83 @@
   {% if results %}
   <div class="col-lg-5">
     <div class="card h-100">
-      <div class="card-header">Severity</div>
+      <div class="card-header">Severity breakdown</div>
       <div class="card-body">
-        <canvas id="sevChart" height="150"></canvas>
-        <p class="small text-body-secondary mt-3 mb-0">
-          {{ results|length }} unit{{ '' if results|length == 1 else 's' }} analysed
-          {%- if job.files_scanned %}, {{ '{:,}'.format(job.files_scanned) }} files
-          examined, {{ job.files_flagged }} flagged{% endif %}.
-        </p>
+        <canvas id="sevChart" height="170"></canvas>
       </div>
     </div>
   </div>
   {% endif %}
 </div>
 
-{% if job.artifact == 'memory' and job.ood_count is not none %}
-<div class="alert alert-secondary mt-3 mb-0">
-  <strong>Model verdict is secondary for memory captures.</strong>
-  {{ job.ood_count }} of 55 features fall outside the range observed in the training
-  data, so the model is extrapolating and its probability is reported for reference
-  only. The findings below are Volatility's direct measurements of this dump and do
-  not depend on it.
+{% if results %}
+{% if job.artifact == 'disk' and results|length > 1 %}
+<h2 class="h5 mt-4 mb-2">Per-file results</h2>
+<p class="text-body-secondary small">
+  Sorted most severe first. Click a column to re-sort; every flagged file carries its full
+  path and SHA-256 so it can be retrieved for manual examination.
+</p>
+<div class="card mb-4">
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0" id="fileTable">
+      <thead>
+        <tr>
+          <th class="ps-3 fx-sort" data-key="sev">Severity</th>
+          <th class="fx-sort" data-key="num">Probability</th>
+          <th class="fx-sort" data-key="text">Path</th>
+          <th class="text-end fx-sort" data-key="num">Size</th>
+          <th class="pe-3">SHA-256</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr data-sev="{{ severity_rank(r.severity) }}">
+          <td class="ps-3">{{ sev_badge(r.severity) }}</td>
+          <td class="num small" data-v="{{ r.probability }}">
+            {{ '%.4f'|format(r.probability) }}
+          </td>
+          <td class="small text-break">{{ r.path }}</td>
+          <td class="text-end num small" data-v="{{ r.file_size or 0 }}">
+            {{ '{:,}'.format(r.file_size or 0) }}
+          </td>
+          <td class="pe-3 hash">{{ (r.file_sha256 or '')[:16] }}…</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endif %}
 
-{% if results %}
-<h2 class="h5 mt-4">Findings</h2>
+<h2 class="h5 mt-4 mb-2">Findings</h2>
 {% for r in results %}
+{% if r.findings or job.artifact == 'memory' or r.malicious %}
 <div class="card mb-3">
-  <div class="card-header d-flex align-items-center gap-2">
+  <div class="card-header d-flex align-items-center gap-2 text-none">
     {{ sev_badge(r.severity) }}
-    <span class="mono small">{{ '%.4f'|format(r.probability) }}</span>
-    <span class="small text-truncate">{{ r.path or 'whole memory dump' }}</span>
+    <span class="num small text-body-secondary">p={{ '%.4f'|format(r.probability) }}</span>
+    <span class="small text-truncate text-body-secondary">
+      {{ r.path or 'whole memory dump' }}
+    </span>
   </div>
   <div class="card-body">
     {% if r.severity_note %}
       <p class="small text-body-secondary">{{ r.severity_note }}</p>
     {% endif %}
+
     {% if r.file_sha256 %}
       <dl class="facts row small">
         <dt class="col-sm-3">SHA-256</dt><dd class="col-sm-9 hash">{{ r.file_sha256 }}</dd>
         <dt class="col-sm-3">MD5</dt><dd class="col-sm-9 hash">{{ r.file_md5 }}</dd>
         <dt class="col-sm-3">Size</dt>
-        <dd class="col-sm-9 mono">{{ '{:,}'.format(r.file_size) }} bytes</dd>
-        <dt class="col-sm-3">MFT / inode</dt><dd class="col-sm-9 mono">{{ r.inode }}</dd>
+        <dd class="col-sm-9 num">{{ '{:,}'.format(r.file_size) }} bytes</dd>
+        <dt class="col-sm-3">MFT / inode</dt><dd class="col-sm-9 num">{{ r.inode }}</dd>
         <dt class="col-sm-3">Offset</dt>
-        <dd class="col-sm-9 mono">{{ r.data_offset if r.data_offset is not none else 'not available' }}</dd>
+        <dd class="col-sm-9 num">
+          {{ r.data_offset if r.data_offset is not none else 'not available' }}
+        </dd>
         <dt class="col-sm-3">MACB</dt>
-        <dd class="col-sm-9 mono small">
+        <dd class="col-sm-9 num small">
           M {{ r.mtime or '-' }} · A {{ r.atime or '-' }} ·
           C {{ r.ctime or '-' }} · B {{ r.btime or '-' }}
         </dd>
@@ -124,43 +219,44 @@
     {% endif %}
 
     {% if r.findings %}
-    <table class="table table-sm small mb-0">
-      <thead><tr><th>#</th><th>Observation</th><th>Indicator</th><th>ATT&CK</th></tr></thead>
-      <tbody>
-        {% for f in r.findings|sort(attribute='rank') %}
-        <tr>
-          <td>{{ f.rank }}</td>
-          <td>{{ f.meaning }}</td>
-          <td>{{ f.tag or '—' }}
-            {% if f.confidence %}
-              <span class="text-body-secondary">({{ f.confidence }})</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if f.mitre_id %}
-              <a href="{{ f.mitre_url }}" target="_blank" rel="noopener">{{ f.mitre_id }}</a>
-            {% else %}—{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="table-responsive">
+      <table class="table table-sm small mb-0">
+        <thead>
+          <tr><th>#</th><th>What was observed</th><th>Indicator</th><th>ATT&amp;CK</th></tr>
+        </thead>
+        <tbody>
+          {% for f in r.findings|sort(attribute='rank') %}
+          <tr>
+            <td class="text-body-secondary num">{{ f.rank }}</td>
+            <td>{{ f.meaning }}</td>
+            <td>{{ f.tag or '—' }}
+              {% if f.confidence %}
+                <span class="text-body-secondary">({{ f.confidence }})</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if f.mitre_id %}
+                <a href="{{ f.mitre_url }}" target="_blank" rel="noopener">{{ f.mitre_id }}</a>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     {% else %}
       <p class="small text-body-secondary mb-0">No indicators matched.</p>
     {% endif %}
   </div>
 </div>
+{% endif %}
 {% endfor %}
+
 {% elif job.done %}
-  <p class="text-body-secondary mt-4">No results recorded.</p>
-{% else %}
-  <p class="text-body-secondary mt-4">
-    Analysis runs in the background and takes minutes, not seconds. This page refreshes
-    itself.
-  </p>
+  <div class="card"><div class="fx-empty">No results recorded for this job.</div></div>
 {% endif %}
 
-<h2 class="h5 mt-4">Scope and limitations</h2>
+<h2 class="h5 mt-4 mb-2">Scope and limitations</h2>
 <div class="card">
   <div class="card-body small">
     {% include "_limitations.html" %}
@@ -169,30 +265,73 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
 {% if results %}
+<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
 <script>
+const SEV = {"Critical":"#f4516c","High":"#f0932b","Medium":"#4cc9e6",
+             "Low":"#6b7c93","Unrated":"#3d4a5c"};
+const labels = {{ severity_counts.keys()|list|tojson }};
 new Chart(document.getElementById("sevChart"), {
   type: "doughnut",
   data: {
-    labels: {{ severity_counts.keys()|list|tojson }},
+    labels: labels,
     datasets: [{
       data: {{ severity_counts.values()|list|tojson }},
-      backgroundColor: ["#dc3545", "#ffc107", "#0dcaf0", "#6c757d", "#495057"]
+      backgroundColor: labels.map(l => SEV[l] || "#3d4a5c"),
+      borderColor: "#141a22", borderWidth: 2
     }]
   },
-  options: { plugins: { legend: { position: "bottom" } } }
+  options: {
+    cutout: "62%",
+    plugins: { legend: { position: "bottom",
+                         labels: { color: "#8b98a8", boxWidth: 12, padding: 14 } } }
+  }
 });
 </script>
+
+<script>
+const table = document.getElementById("fileTable");
+if (table) {
+  const body = table.tBodies[0];
+  table.querySelectorAll("th.fx-sort").forEach((th, col) => th.addEventListener("click", () => {
+    const dir = th.dataset.dir === "asc" ? "desc" : "asc";
+    table.querySelectorAll("th.fx-sort").forEach(o => o.removeAttribute("data-dir"));
+    th.dataset.dir = dir;
+    const sign = dir === "asc" ? 1 : -1;
+    const key = th.dataset.key;
+    [...body.rows].sort((a, b) => {
+      if (key === "sev") return sign * (a.dataset.sev - b.dataset.sev);
+      const x = a.cells[col], y = b.cells[col];
+      if (key === "num") return sign * (parseFloat(x.dataset.v) - parseFloat(y.dataset.v));
+      return sign * x.textContent.trim().localeCompare(y.textContent.trim());
+    }).forEach(tr => body.appendChild(tr));
+  }));
+}
+</script>
 {% endif %}
+
 {% if not job.done %}
 <script>
 const url = "{{ url_for('main.job_status', job_id=job.id) }}";
+const started = Date.now();
+const bar = document.getElementById("stageBar");
+const text = document.getElementById("stageText");
+const elapsed = document.getElementById("elapsed");
+
+setInterval(() => {
+  const s = Math.floor((Date.now() - started) / 1000);
+  if (elapsed) elapsed.textContent =
+    `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")} elapsed`;
+}, 1000);
+
 setInterval(async () => {
   const r = await fetch(url);
   if (!r.ok) return;
-  if ((await r.json()).done) location.reload();
-}, 5000);
+  const j = await r.json();
+  if (j.done) { location.reload(); return; }
+  if (text && j.stage) text.textContent = j.stage;
+  if (bar && j.progress_pct !== null) bar.style.width = j.progress_pct + "%";
+}, 3000);
 </script>
 {% endif %}
 {% endblock %}
