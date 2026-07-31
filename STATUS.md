@@ -58,6 +58,25 @@ repo.
 `baselines/clean_win10_x64.json` is committed and holds the x64 capture's 55 features,
 its behavioural baseline and its ground-truth numbers.
 
+## Uploaded artifacts are retained forever — currently unmanaged
+
+**Stated so it is a choice rather than a discovery.** `uploads/` (gitignored, outside the
+web root, never served) keeps every uploaded artifact indefinitely. `artifacts.store`
+writes it, `jobs.run` reads it once, and **nothing ever deletes it** — there is no cleanup
+pass, no retention setting, no delete route, and CLAUDE.md §10's data flow never specified
+one. So today this is unmanaged growth, not a deliberate custody policy.
+
+The application does not need the file after a job completes: `report.render()` builds
+from stored results and job metadata alone and never reopens the artifact. What retention
+does buy is genuinely forensic — re-analysis without re-acquiring, and the SHA-256 in the
+chain-of-custody header is only checkable against the artifact it was computed from.
+
+The cost is a memory capture per job, at ~2 GB each, kept forever, on top of the 2×
+transient documented in §10. Two defensible resolutions, either of which makes it a
+decision: **keep** retention and say so in the docs plus the report's custody section, or
+add an explicit retention window with an audit-logged purge. Not urgent — a lab tool with
+two analysts will not fill a disk this semester — but it should not stay accidental.
+
 ## Running it
 
 ```
