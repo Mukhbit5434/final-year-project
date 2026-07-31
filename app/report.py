@@ -27,6 +27,8 @@ REQUIRED_MEMORY = [
     "out of the 55 features",
     "unusually high separability",
     "SMOTE",
+    "controlled reference environment",
+    "per-machine clean baseline",
 ]
 
 LIEF_CAVEAT = (
@@ -42,6 +44,16 @@ SATURATION_CAVEAT = (
     "interpolated rather than captured, and interpolated points cannot exceed the range "
     "of the samples they were drawn from. Reported benchmark performance should be read "
     "in that light, and real-world performance may differ substantially.")
+
+# CLAUDE.md 11.1. Memory severity is calibrated against one reference machine's own
+# known-good baseline, so reading a memory report against any other machine is misuse.
+# Mandatory rather than conditional: the fragments asserted in REQUIRED_MEMORY carry no
+# parentheses, because verify_pipeline.py matches the raw PDF stream where "(" is escaped.
+SCOPE_STATEMENT = (
+    "Demonstrated on a controlled reference environment (Windows 10 x64). Severity is "
+    "calibrated against a per-machine clean baseline and is valid for that machine. "
+    "Cross-machine deployment would require a per-machine baseline established in "
+    "advance.")
 
 TRIAGE_NOTE = (
     "This system performs automated triage. It narrows the scope of an investigation to "
@@ -99,6 +111,7 @@ def limitations(job):
                 "are direct measurements of this capture and do not depend on it.",
                 SATURATION_CAVEAT]))
         out.append(("Baseline for the observed indicators", [baseline.NOTE]))
+        out.append(("Reference environment and scope", [SCOPE_STATEMENT]))
 
     out.append(("MITRE ATT&CK mappings", [mitre.DISCLAIMER]))
     return out

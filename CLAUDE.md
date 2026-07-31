@@ -953,7 +953,7 @@ scored. Do not make this a black box on top of a black box.
    - for memory results, a one-line statement that the underlying benchmark dataset
      shows unusually high separability and that real-world performance may differ
    - for memory results, the **reference-environment scope statement** from Section 11.1,
-     which is mandatory and must be added to `report.REQUIRED_MEMORY`
+     which is mandatory and is asserted through `report.REQUIRED_MEMORY`
 
    The section renders unconditionally, with explicit "none recorded" text when a list
    is empty. A test must fail if any mandatory string is absent.
@@ -1166,9 +1166,11 @@ What follows from that:
   > calibrated against a per-machine clean baseline and is valid for that machine.
   > Cross-machine deployment would require a per-machine baseline established in advance.
 
-  *Not yet enforced in code.* `report.REQUIRED_MEMORY` does not contain it and
-  `report.limitations()` does not emit it. Adding both is a next-session task — see
-  STATUS.md.
+  *Enforced.* `report.SCOPE_STATEMENT` carries the wording, `report.limitations()`
+  emits it for memory jobs under the heading "Reference environment and scope", and
+  `report.REQUIRED_MEMORY` asserts `"controlled reference environment"` and
+  `"per-machine clean baseline"` — two paren-free fragments, because the PDF stream
+  escapes parentheses and `verify_pipeline.py` matches raw bytes.
 
 ### 11.2 Out of scope entirely
 

@@ -128,7 +128,8 @@ raised nothing. Kept here because the pattern is the argument for testing on rea
 
 ## Outstanding
 
-Nothing blocks the build. Four items, in the order they should be tackled.
+Nothing blocks the build. Four items, in the order they should be tackled — item 3 is
+now done, the other three remain.
 
 ### 1. Captures from the reference machine — user supplies
 
@@ -176,11 +177,19 @@ optimism.** This is not reopening the distribution investigation — the SMOTE r
 closed and stays closed. It only measures whether the gate is correctly calibrated for the
 reference machine.
 
-### 3. Enforce the reference-environment scope statement
+### 3. Enforce the reference-environment scope statement — **done 2026-07-31**
 
-CLAUDE.md §11.1 specifies a mandatory scope statement for every memory report. It is
-**specified but not enforced**: it is absent from `report.REQUIRED_MEMORY` and
-`report.limitations()` does not emit it. Add both, so the build fails if it goes missing.
+`report.SCOPE_STATEMENT` holds the §11.1 wording, `report.limitations()` emits it for
+memory jobs as "Reference environment and scope", and `report.REQUIRED_MEMORY` asserts
+two fragments of it. Verified by adding the required strings first and watching
+`test_mandatory_limitation_strings_survive_into_a_memory_report` fail on
+`'controlled reference environment'`, then passing once the emission was added.
+
+The asserted fragments deliberately contain **no parentheses**. `verify_pipeline.py`
+matches mandatory strings against the raw uncompressed PDF stream, where ReportLab
+escapes `(` as `\(` — so a fragment spanning "(Windows 10 x64)" would pass pytest, whose
+`text_of` strips parens, and fail the pipeline check. Both fragments were confirmed
+against the raw-byte path as well as the collapsed-text one.
 
 ### 4. Investigate the runtime discrepancy
 
@@ -216,12 +225,8 @@ render a result. That is the only build work these demos require.
 
 ## The exact next task
 
-Two independent tracks; either can start first.
-
-**Track A (no user input needed):** item 3 above — add the reference-environment scope
-statement to `report.REQUIRED_MEMORY` and emit it from `report.limitations()` for memory
-jobs, then confirm the existing mandatory-string test fails without it and passes with it.
-Small, self-contained, and closes a specified-but-unenforced gap.
+**Track A is complete** (item 3 above, 2026-07-31). Track B is what remains, plus items
+1, 2 and 4.
 
 **Track B (needs the captures):** once the five clean captures from item 1A arrive, extend
 `baselines/clean_win10_x64.json` into a multi-capture distribution (median and IQR per
