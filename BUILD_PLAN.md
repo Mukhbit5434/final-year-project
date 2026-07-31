@@ -4,8 +4,8 @@
 > planning record — the risk analysis and per-step reasoning are still worth reading, but
 > several of its predictions were wrong and are corrected elsewhere: the psxview gap
 > turned out to be 6 features rather than 14, the "differently configured VMs" theory was
-> superseded by SMOTE, the 32-bit dataset inference was wrong, and the x64 automagic
-> branch worked rather than breaking as predicted. **`STATUS.md` is the current state and
+> superseded by SMOTE, and the automagic branch worked rather than breaking as predicted.
+> **`STATUS.md` is the current state and
 > `CLAUDE.md` is the binding spec.**
 
 Companion to [CLAUDE.md](CLAUDE.md). Planning document only — no code written yet.
@@ -375,7 +375,7 @@ These are row counts or column filters that map cleanly onto Volatility 3 output
 | Field | Status |
 |---|---|
 | `psxview.not_in_*` — roughly 3 of the 7 sources, plus their paired `_false_avg` | Vol3's psxview enumerates by ~4 methods against Vol2's 7. `pspcid` is the confirmed casualty; the others must be identified from the installed source on day 1 of step 5. → 0.0 + gap, ~6 fields. |
-| `pslist.nprocs64bit` | Constant 0 in all training data. The dataset was captured on a 32-bit VM (or Vol2 never populated it). On a modern x64 dump the honest value is ~40 — which is **outside the entire training distribution**. Emitting the honest value may be *worse* than emitting 0. See Part 3.1. |
+| `pslist.nprocs64bit` | Constant 0 in all training data. Emitting the honest value may be *worse* than emitting 0 if it lands outside the training distribution. See Part 3.1. (Settled since: it counts WOW64 processes, and 0 is what an x64 host with none running produces — CLAUDE.md §5.3/§5.7.) |
 | `handles.nport` | Constant 0. The `Port` object type is XP/2003-era and doesn't exist on modern Windows. Emitting 0 is correct *and* matches training — the one happy case. |
 | `svcscan.interactive_process_services` | Constant 0 in training. Vol3 does expose `SERVICE_INTERACTIVE_PROCESS`, so a real dump could produce a nonzero value the model has never seen. |
 

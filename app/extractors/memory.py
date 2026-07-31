@@ -83,48 +83,11 @@ def _no_files():
     return _NoFiles
 
 
-def find_pae_dtb(ctx, layer_name):
-    """Locate a PAE page-directory-pointer table by hand.
-
-    volatility3 2.28 cannot do this itself. WindowsIntelStacker rejects any
-    candidate whose 4 KB page holds fewer than 10 valid pointers, as a guard
-    against Windows' small dummy page tables - but a PAE PDPT has exactly four
-    entries by architecture, so every genuine 32-bit PAE DTB is discarded and no
-    layer is ever built. Verified against volatility3 2.28.0 on a Windows 10 x86
-    capture: the real DTB sits at 0x1a8000 with 4 valid pointers and is thrown
-    away, and both this library and the stock `vol` CLI then report
-    "No suitable kernels found during pdbscan".
-    """
-    from volatility3.framework.automagic import windows as winmagic
-
-    layer = ctx.layers[layer_name]
-    scanner = winmagic.PageMapScanner([winmagic.DtbSelfRefPae()])
-
-    # Modern Windows randomises the self-referential index but keeps the DTB in a
-    # narrow band - volatility's own stacker says the same, and the 32-bit sample
-    # capture puts it at 0x1a8000. Checking the band first costs milliseconds; a
-    # full 2 GB sweep costs about a minute and finds nothing at all on x64, which
-    # is the common case for this function.
-    band = [offset for _, offset in layer.scan(ctx, scanner,
-                                               sections=[(0x1A0000, 0x10000)])]
-    if band:
-        return band[0]
-
-    hits = [offset for _, offset in layer.scan(ctx, scanner)]
-    return hits[0] if hits else None
-
-
 def build_context(dump, catalog=None):
-    """-> {ctx, layer, symbols, offset, bits} describing the kernel to analyse.
-
-    The PAE path is tried first because stock automagic cannot build a layer for
-    a 32-bit image at all (see 5.6); anything else falls through to automagic,
-    which handles 64-bit images and crash dumps on the supported path.
-    """
+    """-> {ctx, layer, symbols, offset, bits} describing the kernel to analyse."""
     from volatility3 import framework
     from volatility3.framework import automagic, contexts, plugins
-    from volatility3.framework.layers import intel, physical
-    from volatility3.framework.symbols.windows import pdbutil
+    from volatility3.framework.layers import intel
     import volatility3.plugins
 
     framework.import_files(sys.modules["volatility3.framework.layers"])
@@ -134,47 +97,25 @@ def build_context(dump, catalog=None):
 
     ctx = contexts.Context()
     ctx.config["automagic.LayerStacker.single_location"] = _url(dump)
-    ctx.config["base.location"] = _url(dump)
-    ctx.add_layer(physical.FileLayer(ctx, "base", "base"))
-    dtb = find_pae_dtb(ctx, "base")
-
-    if dtb is not None:
-        ctx.config["primary_cfg.memory_layer"] = "base"
-        ctx.config["primary_cfg.page_map_offset"] = dtb
-        ctx.add_layer(intel.WindowsIntelPAE(ctx, "primary_cfg", "primary",
-                                            metadata={"os": "Windows"}))
-
-        kernels = list(pdbutil.PDBUtility.pdbname_scan(
-            ctx=ctx, layer_name="primary", start=0, page_size=0x1000,
-            pdb_names=[bytes(n + ".pdb", "utf-8") for n in
-                       ("ntkrpamp", "ntkrnlmp", "ntkrnlpa", "ntoskrnl")]))
-        if not kernels:
-            raise ExtractionError(
-                f"a PAE page directory was found at {dtb:#x} but no Windows kernel is "
-                "mapped through it; the capture may be torn or from a paused-but-not-"
-                "suspended VM")
-
-        kernel = kernels[0]
-        table = pdbutil.PDBUtility.load_windows_symbol_table(
-            context=ctx, guid=kernel["GUID"], age=kernel["age"],
-            pdb_name=kernel["pdb_name"], config_path="pdbutility",
-            symbol_table_class="volatility3.framework.symbols.windows."
-                               "WindowsKernelIntermedSymbols")
-        ctx.config["primary_cfg.kernel_virtual_offset"] = kernel["mz_offset"]
-        return {"ctx": ctx, "layer": "primary", "symbols": table,
-                "offset": kernel["mz_offset"], "bits": 32}
-
-    ctx = contexts.Context()
-    ctx.config["automagic.LayerStacker.single_location"] = _url(dump)
     cls = catalog["windows.pslist.PsList"]
     autos = automagic.choose_automagic(automagic.available(ctx), cls)
     plugins.construct_plugin(ctx, autos, cls, "plugins", None, _no_files())
 
     layer = ctx.config["plugins.PsList.kernel.layer_name"]
+    bits = 64 if isinstance(ctx.layers[layer], intel.Intel32e) else 32
+    if bits != 64:
+        # Earliest reliable point: a raw dump carries no header identifying its
+        # architecture, so this cannot be caught at upload. The layer class is the
+        # first thing that settles it, and it settles it before any plugin runs.
+        raise ExtractionError(
+            "this memory capture is not 64-bit. The memory pipeline is scoped to a "
+            "controlled reference environment, Windows 10 x64, and does not analyse "
+            "any other architecture")
+
     return {"ctx": ctx, "layer": layer,
             "symbols": ctx.config["plugins.PsList.kernel.symbol_table_name"],
             "offset": ctx.config["plugins.PsList.kernel.offset"],
-            "bits": 64 if isinstance(ctx.layers[layer], intel.Intel32e) else 32}
+            "bits": bits}
 
 
 def run_plugin(dump, plugin, catalog=None, prepared=None):

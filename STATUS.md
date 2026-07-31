@@ -17,7 +17,7 @@ on *what exists*.
 | 2 Auth, upload, jobs, audit, rate limit | Done |
 | 3 Inference + column-order guards | Done |
 | 4 Disk extractor | Done, verified on real evidence |
-| 5 Memory extractor | Done, verified on x86 and x64 captures |
+| 5 Memory extractor | Done, verified on the x64 capture |
 | 6 Job pipeline | Done, verified end to end |
 | 7 LIME, meanings, MITRE, severity | Done |
 | 8 Dashboard | Done |
@@ -28,24 +28,19 @@ on *what exists*.
 
 **Disk** — CFReDS `2020JimmyWilson.E01`: 3,817 files examined, all 19 PE files found by
 content (including two named `.db` and `.regtrans-ms`), 13 unique after SHA-256 dedupe,
-0 flagged, ~11 s. Correct: the image holds only signed Microsoft and OpenOffice binaries.
+0 flagged, 27 s. Correct: the image holds only signed Microsoft and OpenOffice binaries.
 
-**Memory x64** — `win10_memory.raw`, **489 s** through the job layer. Ground truth
+**Memory x64** — `win10_memory.raw`, **409 s** through the job layer. Ground truth
 measured inside the VM at capture time: processes 67 vs 67 exact, drivers 360 vs 362,
 services+drivers 632 vs 615. Extraction is correct in absolute terms; the training range
 really is far below reality. Clean capture scored **p=0.0084, severity Low** — correctly
 benign despite 21 of 55 features being out of range.
 
-**Memory x86** — `Windows 10-32-f7257ea7.vmem`, **384 s**, needs the custom PAE layer that
-stock Volatility cannot build. Clean capture scored **p=0.3701, severity Medium** — above
-the 0.2337 threshold, i.e. a false positive on a machine known to be clean. Retained as a
-test artifact only; 32-bit is out of scope (CLAUDE.md §11.1).
-
-**Runtime discrepancy — investigate next session.** Standalone extraction timed 211 s
-(3.5 min) on both captures; through `verify_pipeline.py` the same work took 489 s and
-384 s, roughly 2.3×. Unexplained. Candidates: the banded PAE scan, the added verification
-work in-process, LIME and report rendering, or machine load from three artifacts run back
-to back. Quote 6–8 minutes end to end until resolved, not 3.5.
+**Runtime — resolved 2026-07-31.** Standalone extraction 401 s, end to end through the job
+layer 409 s, measured minutes apart on the same machine. **The job layer costs 8 s, about
+2%.** The old "2.3× overhead" compared two runs taken under different machine conditions —
+over the same period the disk artifact moved from ~11 s to 27 s on identical input. Quote
+**about 7 minutes** for a 2 GB capture.
 
 **Web** — every route returns against real data; PDFs render for both pipelines; uploaded
 artifacts are unreachable over HTTP.
@@ -58,8 +53,7 @@ repo.
 | Path | What |
 |---|---|
 | `sample/disk/2020JimmyWilson.E01` | NIST CFReDS evidence image, 295 MB |
-| `sample/memory/win10_memory.raw` | Win10 21H2 x64 19044.1288, 2 GB, Magnet RAM Capture. **The primary demo dump.** |
-| `sample/memory/Windows 10-32-f7257ea7.vmem` (+ `.vmss`) | 32-bit VM, a *different machine* — never compare its counts to the x64 one |
+| `sample/memory/win10_memory.raw` | Win10 21H2 x64 19044.1288, 2 GB, Magnet RAM Capture. **The only memory dump this project has.** |
 
 `baselines/clean_win10_x64.json` is committed and holds the x64 capture's 55 features,
 its behavioural baseline and its ground-truth numbers.
@@ -117,19 +111,16 @@ raised nothing. Kept here because the pattern is the argument for testing on rea
 - `lief` 1.0.0 vs the 0.9.0 EMBER was validated against; disclosed in every disk report.
 - The clean baseline is **per-machine by design** (CLAUDE.md §11.1). It anchors order of
   magnitude, not a threshold — `malfind.commitCharge` spans 200× across captures of a
-  single machine, so more captures of the reference machine are still needed.
-  **Evidence for the scope decision:** running the x86 dump against the x64 machine's
-  baseline yields severity **Medium** on a system known to be clean, because that machine
-  simply runs more (ldrmodules 230 vs 203, `psxview.not_in_pslist` 9 vs 3). The x64 dump
-  against its own baseline correctly yields Low. That is cross-machine misuse, which the
-  scope now forbids — not an outstanding defect.
+  single machine, so more captures of the reference machine are still needed. Comparing a
+  capture against another machine's baseline is misuse and the scope forbids it; the x64
+  dump against its own baseline correctly yields Low.
 - A UPX-packed benign binary is flagged (0.0010 → 0.6607). Useful for demonstrating the
   detection path; it is a false positive and must be worded as one.
 
 ## Outstanding
 
-Nothing blocks the build. Four items, in the order they should be tackled — item 3 is
-now done, the other three remain.
+Nothing blocks the build. Four items — 3 and 4 are done; 1 and 2 remain and both need the
+reference-machine captures.
 
 ### 1. Captures from the reference machine — user supplies
 
@@ -169,8 +160,7 @@ probabilities, then run the malicious capture.
   distribution. That would justify *showing* the verdict with a stated caveat rather than
   withholding it.
 - **Any clean capture above threshold** → withholding is confirmed correct, and we have a
-  measured false-positive rate on a machine known to be clean. Note the x86 dump already
-  scored 0.3701 on a clean system, which is evidence in this direction.
+  measured false-positive rate on a machine known to be clean.
 
 **The OOD gate stays exactly as it is until this data exists. Do not unlock it on
 optimism.** This is not reopening the distribution investigation — the SMOTE root cause is
@@ -191,9 +181,11 @@ escapes `(` as `\(` — so a fragment spanning "(Windows 10 x64)" would pass pyt
 `text_of` strips parens, and fail the pipeline check. Both fragments were confirmed
 against the raw-byte path as well as the collapsed-text one.
 
-### 4. Investigate the runtime discrepancy
+### 4. Investigate the runtime discrepancy — **closed 2026-07-31**
 
-211 s standalone vs 489 s / 384 s through `verify_pipeline.py`. See the runtime note above.
+There was no discrepancy. Standalone 401 s vs 409 s through the job layer, same machine,
+minutes apart: the job layer adds 2%. The old figures were taken under different machine
+conditions and were never comparable.
 
 ## Demo plan
 
@@ -225,8 +217,8 @@ render a result. That is the only build work these demos require.
 
 ## The exact next task
 
-**Track A is complete** (item 3 above, 2026-07-31). Track B is what remains, plus items
-1, 2 and 4.
+**Items 3 and 4 are closed** (2026-07-31). Everything that remains needs the
+reference-machine captures.
 
 **Track B (needs the captures):** once the five clean captures from item 1A arrive, extend
 `baselines/clean_win10_x64.json` into a multi-capture distribution (median and IQR per

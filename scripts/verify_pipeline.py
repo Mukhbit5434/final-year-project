@@ -20,7 +20,6 @@ sys.path.insert(0, str(ROOT))
 SAMPLES = [
     ("disk", ROOT / "sample" / "disk" / "2020JimmyWilson.E01"),
     ("memory", ROOT / "sample" / "memory" / "win10_memory.raw"),
-    ("memory", ROOT / "sample" / "memory" / "Windows 10-32-f7257ea7.vmem"),
 ]
 
 # What the artifacts above produced when last verified. Drifting from these is not
@@ -29,7 +28,6 @@ SAMPLES = [
 EXPECTED = {
     "2020JimmyWilson.E01": "3,817 files examined, 13 results, 0 flagged, 60 skipped",
     "win10_memory.raw": "67 processes (ground truth 67), 21 of 55 out of distribution",
-    "Windows 10-32-f7257ea7.vmem": "23 of 55 out of distribution, custom PAE layer",
 }
 
 

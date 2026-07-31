@@ -288,10 +288,9 @@ These are dead or near-dead inputs. They are documented here so nobody "fixes" t
 **64-bit Windows 10**, 2 GB RAM, Oracle VirtualBox, snapshots taken externally via
 the VirtualBox VM manager, Volatility 2.6, features extracted on a Kali Linux host.
 
-Earlier drafts of this file inferred a *32-bit* capture VM from
-`pslist.nprocs64bit == 0`, and then floated a Windows 7 hypothesis on top of it.
-**Both were wrong and are deleted.** The feature counts WOW64 processes, so zero is
-what an x64 VM with no 32-bit processes produces. Do not reintroduce either claim.
+Infer nothing about the capture VM from `pslist.nprocs64bit == 0` — it counts WOW64
+processes, so zero is simply what an x64 VM with no 32-bit process running produces.
+Earlier drafts read an architecture and an OS generation out of it; both were wrong.
 
 ### 5.4a What the memory model actually keys on — measured
 
@@ -458,58 +457,44 @@ nothing to distinguish the two cases.
   each of the 55 values next to that column's training min/max, so they can be eyeballed
   before trusting the pipeline end to end.
 
-### 5.6 volatility3 cannot auto-detect a 32-bit PAE page directory — worked around
+### 5.6 Kernel symbols, architecture gate, and runtime
 
-**Measured against volatility3 2.28.0 on a Windows 10 x86 capture.** Stock automagic
-fails on every 32-bit PAE image, and the stock `vol` CLI fails identically, so this is
-upstream and not a harness problem:
+`build_context` uses stock volatility3 automagic and nothing else. It derives `bits` from
+the constructed layer class (`Intel32e` ⇒ 64-bit) and **raises `ExtractionError` on
+anything that is not 64-bit**, naming the scope from Section 11.1.
 
-```
-No suitable kernels found during pdbscan
-Unsatisfied requirement plugins.Info.kernel.layer_name
-```
-
-`WindowsIntelStacker.stack` guards against Windows' small dummy page tables by reading
-the candidate's 4 KB page and discarding it if fewer than 10 pointers are valid
-(`automagic/windows.py`, `page_table_is_dummy`). **A PAE page-directory-pointer table
-has exactly four entries by architecture.** So every genuine PAE DTB is thrown away, no
-Intel layer is ever built, and `determine_valid_kernel` then has no layer to scan.
-
-Confirmed on the sample capture: the real DTB is at `0x1a8000`, holds exactly 4 valid
-pointers, and is rejected. Constructing `WindowsIntelPAE` at that offset by hand resolves
-`ntkrpamp.pdb` immediately with the kernel at `0x8186c000`, and all nine plugins then run.
-
-`extractors/memory.py:find_pae_dtb` and `build_context` do exactly that. Stock automagic
-is still tried first, so 64-bit images and crash dumps keep the supported path; the manual
-construction is the fallback. Do not "simplify" this away — without it the memory pipeline
-cannot read a 32-bit dump at all, and 32-bit is the configuration closest to what
-CIC-MalMem-2022 was captured on.
-
-Note also that a VMware `.vmem` whose `.vmss` reports `regionsCount == 0` makes
-`VmwareLayer` raise `VmwareFormatException: VMware VMEM is not split into regions`. That
-is not an error condition — it means memory is one flat block and the `.vmem` should be
-read directly as a raw image, which is what the fallback does.
+That is the earliest reliable point for the check. A raw memory dump carries no header
+identifying its architecture — `.raw`/`.mem`/`.vmem` carry nothing at all — so upload-time
+detection is not possible. The only exception is a crash dump, where `PAGEDUMP` vs
+`PAGEDU64` does distinguish the two, and that covers `.dmp` alone. The layer class is the
+first thing that settles it for every format, and it settles it **before any of the nine
+plugins run**, so a rejected capture costs one layer build and no extraction work.
 
 Volatility 3 resolves Windows kernel symbols by downloading PDB-derived ISF JSON from
 `downloads.volatilityfoundation.org` on first encounter with an unseen build. On an
 offline machine memory extraction fails with a confusing symbol error. **Pre-populate the
 symbol cache** for the builds being analysed, ship it alongside the app, and document it.
 
-**Runtime is measured, and it has moved.** Standalone extraction runs timed 3.5–3.7
-minutes (211s) on both 2 GB captures with the symbol cache warm. The full
-`verify_pipeline.py` run through the job layer timed **489s (x64)** and **384s (x86)** —
-roughly 2.3× the standalone figure.
+**Runtime is measured, and the earlier "2.3× job-layer overhead" was not real.** Measured
+2026-07-31 on the 2 GB x64 capture with the symbol cache warm, both figures taken minutes
+apart on the same machine:
 
-**The cause is unexplained and needs investigating next session.** Candidates: the banded
-PAE scan added in Section 5.6, the extra verification work in the same process, the LIME
-and report rendering that follow extraction, or simply machine load from three artifacts
-running back to back. Do not quote 3.5 minutes as the pipeline figure — quote 6–8 minutes
-end to end until this is resolved.
+| | |
+|---|---:|
+| Standalone extraction (`dump_memory_features.py`) | 401 s |
+| End to end through the job layer (`verify_pipeline.py`) | **409 s** |
 
-The first run on an unseen build adds ~4 minutes of ISF download on top. Earlier drafts of
-this file guessed 15–45 minutes; that was pessimistic, but runtime scales with dump size
-and process count and a large multi-socket capture will be far slower. Hard rule 10 still
-stands — say minutes, never seconds — and keep the per-plugin progress indicator.
+**The job layer costs 8 s, about 2%.** An earlier draft inferred a 2.3× job-layer penalty
+by comparing two runs taken under different machine conditions; over the same period the
+disk artifact moved from ~11 s to 27 s on identical input. There was never an overhead to
+explain. Measure both halves in one sitting or not at all.
+
+Quote **about 7 minutes** for a 2 GB memory capture end to end, not 6–8, and not 3.5.
+
+The first run on an unseen build adds ~4 minutes of ISF download on top. Runtime scales
+with dump size and process count, and a large multi-socket capture will be far slower.
+Hard rule 10 still stands — say minutes, never seconds — and keep the per-plugin progress
+indicator.
 
 ---
 
@@ -1149,16 +1134,12 @@ arbitrary machines.
 
 What follows from that:
 
-- **Accepted memory input is Windows 10 x64 only.** 32-bit is dropped from supported
-  input. The `.vmem`/`.vmss` x86 capture is retained purely as a test artifact — it caught
-  real bugs and still exercises code paths the x64 dump does not.
-- **The custom PAE layer stays in the codebase** (Section 5.6). It is what makes the
-  retained x86 test artifact readable, and removing it would delete a documented upstream
-  finding. Keeping the code does not make 32-bit a supported case.
+- **Accepted memory input is Windows 10 x64 only.** `build_context` derives the
+  architecture from the constructed layer class and rejects anything else with a stated
+  error before any plugin runs (Section 5.6). This is enforced, not merely documented.
 - **The clean baseline is the same reference machine's known-good state.** Comparing a
-  machine against its own baseline is the design, not a workaround. The x86-scoring-Medium
-  result recorded during verification was *cross-machine misuse*, which this scope now
-  forbids — it is evidence for the decision, not an outstanding defect.
+  machine against its own baseline is the design, not a workaround. Cross-machine
+  comparison is misuse and this scope forbids it.
 - **Every memory report must carry the scope statement**, and it belongs in the mandatory
   limitation set so the build fails if it goes missing:
 
@@ -1413,9 +1394,8 @@ scripts/                 setup_env, check_env, patch_ember, scan_image,
    to, and once over only the baseline-elevated subset, to drive severity. See 9.6 — this
    exists because matching on presence scored the clean reference capture as Critical.
 
-3. **`find_pae_dtb` scans the narrow band first.** Modern Windows keeps the DTB in
-   `0x1a0000–0x1b0000`, and a full 2 GB sweep costs ~65 s while finding nothing at all on
-   x64 — which is the common case. Band first, full sweep only as a fallback.
+3. **`build_context` is stock automagic plus an architecture gate.** No hand-built layer,
+   no fallback branch. Non-x64 captures are refused there, before any plugin runs.
 
 **Testing notes that are not guessable:**
 

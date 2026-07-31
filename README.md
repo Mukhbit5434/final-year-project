@@ -162,11 +162,9 @@ Known limits, stated plainly:
 - Six of the 55 memory features cannot be produced by Volatility 3 at all — its `psxview`
   enumerates processes four ways where Volatility 2 used seven. They are emitted as 0.0
   and recorded as gaps, never estimated. Measured impact: 0.2% of model gain.
-- Volatility 3.2.28 cannot auto-detect the page directory of a 32-bit PAE Windows image;
-  its dummy-table guard discards any candidate with fewer than 10 valid pointers and a PAE
-  table has exactly four. The extractor builds that layer itself. This is retained because
-  it keeps the x86 *test artifact* readable and documents a real upstream defect —
-  32-bit is not a supported input (see the scope note above).
+- Memory input is Windows 10 x64 only. A raw dump carries no header identifying its
+  architecture, so the check happens where the kernel layer is built — before any
+  Volatility plugin runs — and anything else is refused with a stated error.
 - The installed `lief` (1.0.0) differs from the 0.9.0 release EMBER was validated against,
   so feature values may differ slightly from the official benchmark. Disclosed in every
   disk report.
