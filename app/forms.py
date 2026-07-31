@@ -1,7 +1,7 @@
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileRequired
 from wtforms import BooleanField, PasswordField, RadioField, StringField, SubmitField
-from wtforms.validators import DataRequired, Email, EqualTo, Length, Optional
+from wtforms.validators import DataRequired, EqualTo, Length, Optional
 
 from .models import DISK, MEMORY
 
@@ -15,7 +15,11 @@ class LoginForm(FlaskForm):
 
 class RegisterForm(FlaskForm):
     username = StringField("Username", validators=[DataRequired(), Length(3, 64)])
-    email = StringField("Email", validators=[Optional(), Email(), Length(max=255)])
+    # No Email() validator: wtforms' raises a bare Exception unless the separate
+    # email_validator package is installed, which 500s the whole registration.
+    # The address is optional metadata that nothing in this project ever reads -
+    # no mail is sent - so a format check is not worth a dependency for it.
+    email = StringField("Email", validators=[Optional(), Length(max=255)])
     password = PasswordField("Password", validators=[DataRequired(), Length(min=12)])
     confirm = PasswordField("Confirm password",
                             validators=[DataRequired(), EqualTo("password")])

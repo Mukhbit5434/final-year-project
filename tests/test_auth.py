@@ -21,6 +21,19 @@ def test_register_then_sign_in(client):
     assert r.status_code == 302
 
 
+def test_register_with_an_email_address(client):
+    """Every other registration test sends email="", and Optional() short-circuits
+    the chain on an empty field - so nothing here ever exercised a filled-in
+    address. A real one 500'd on the browser path."""
+    r = client.post("/register", data={
+        "username": "withmail", "email": "analyst@example.com",
+        "password": "a-long-enough-pass", "confirm": "a-long-enough-pass",
+    }, follow_redirects=True)
+    assert r.status_code == 200
+    user = db.session.query(User).filter_by(username="withmail").one()
+    assert user.email == "analyst@example.com"
+
+
 def test_short_password_is_rejected(client):
     r = client.post("/register", data={"username": "x", "email": "",
                                        "password": "short", "confirm": "short"})
