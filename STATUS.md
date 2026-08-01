@@ -164,8 +164,8 @@ simulated-malicious `.raw`, and a disk image with simulated malicious elements. 
 infrastructure for those is deliberately **not** built yet; it gets specified together
 with the captures.
 
-Also pending from the user: the path to `Obfuscated-MalMem2022.csv` (place it in `data/`,
-which is gitignored) so `malmem_holdout.py` can be run and its four-check gate verified.
+The MalMem CSV landed on 2026-08-01 and `malmem_holdout.py` has been run — all four gates
+passed, rows committed. Nothing else is pending from the user except the captures.
 
 ### 1. Captures from the reference machine — user supplies
 
@@ -212,14 +212,14 @@ optimism.** This is not reopening the distribution investigation — the SMOTE r
 closed and stays closed. It only measures whether the gate is correctly calibrated for the
 reference machine.
 
-### 2b. Symbol cache — **done 2026-08-01**
+### 3. Symbol cache — **done 2026-08-01**
 
 `scripts/fetch_symbols.py` stages the ISF into repo-local `symbols/`; the extractor
 prepends it to volatility's search path. Verified with `constants.OFFLINE = True`: the
 Win10 19044 capture resolves in 1.9 s with no network. Documented in README and CLAUDE.md
 §5.6.
 
-### 3. Enforce the reference-environment scope statement — **done 2026-07-31**
+### 4. Enforce the reference-environment scope statement — **done 2026-07-31**
 
 `report.SCOPE_STATEMENT` holds the §11.1 wording, `report.limitations()` emits it for
 memory jobs as "Reference environment and scope", and `report.REQUIRED_MEMORY` asserts
@@ -233,7 +233,7 @@ escapes `(` as `\(` — so a fragment spanning "(Windows 10 x64)" would pass pyt
 `text_of` strips parens, and fail the pipeline check. Both fragments were confirmed
 against the raw-byte path as well as the collapsed-text one.
 
-### 4. Runtime — job-layer question closed, variance still open
+### 5. Runtime — job-layer question closed, variance still open
 
 The *job-layer* discrepancy was not real: standalone 401 s vs 409 s through the job layer,
 same machine, minutes apart, so the supervisor adds ~2%. Confirmed the next day when the
@@ -243,6 +243,39 @@ inferred from.
 **Still open: why identical input varies ~2× run to run.** Not investigated, not
 characterised, and the docs say so rather than implying otherwise. `plugin_seconds` is now
 captured on every memory job; read it on the next real run before theorising.
+
+## Known rough edges — deliberate, but write them down
+
+None of these block anything. They are recorded so they are found here rather than in a
+viva.
+
+1. **The memory severity path has never produced a non-Low result on a malicious input.**
+   `severity.for_memory` counts indicators *elevated against the baseline*, and the only
+   malicious memory data we have is CIC-MalMem rows, which are cross-machine and therefore
+   read Low. Unit tests drive the function directly, but no real artifact has ever taken it
+   to High or Critical. The simulated-malicious capture is the first thing that will.
+2. **The four-check refusal gate in `malmem_holdout.py` has never been seen to refuse.**
+   It passed on the first run, so the failure path is untested. A test feeding a
+   deliberately wrong split and asserting refusal is the obvious missing piece.
+3. **Five of seven scripts have no tests** — `malmem_holdout`, `ember_holdout`,
+   `predict_vector`, `fetch_symbols`, `scan_image`, `dump_memory_features`. Only
+   `verify_pipeline` is exercised. They are operator tools, but two of them now produce
+   committed artifacts.
+4. **`predict_vector.py` prints severity for memory vectors that are not from the
+   reference machine**, where it is meaningless (see the limitation above). It should
+   suppress or caveat it; today it just prints Low. Known, not fixed.
+5. **The UI has no visual regression testing.** Route tests assert strings, not layout — a
+   CSS mistake would keep every test green.
+6. **`recover_orphans` does not clear `stage` / `progress_pct` or the orphaned
+   `instance/progress/<id>.json`** after a crash. Harmless (the progress card only renders
+   for PENDING/RUNNING) but untidy.
+7. **Disk progress is indeterminate** — "Vectorising executable N" with no percentage,
+   because the PE count is unknown until the walk finishes.
+8. **Held-out rows are the first matching row of each class**, not randomly sampled. Fine
+   for a demo, recorded in the sidecar JSON, but it is one arbitrary row per class.
+9. **Per-plugin timing is memory-only.** The disk extractor has no equivalent.
+10. **Upload rate limit is 10/hour, hardcoded** in `routes.py`. A one-pass session with
+    five clean captures, a malicious one, a disk image and any retries will approach it.
 
 ## Demo plan
 
