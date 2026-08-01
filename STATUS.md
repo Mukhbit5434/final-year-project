@@ -148,6 +148,12 @@ raised nothing. Kept here because the pattern is the argument for testing on rea
   dump against its own baseline correctly yields Low.
 - A UPX-packed benign binary is flagged (0.0010 → 0.6607). Useful for demonstrating the
   detection path; it is a false positive and must be worded as one.
+- **Memory severity is only meaningful for captures of the reference machine.** Scoring a
+  CIC-MalMem-2022 row against `clean_win10_x64.json` returns Low with every indicator
+  reading "consistent with a healthy system", because the dataset VM was far smaller than
+  the reference box. The code is behaving as designed (§11.1 forbids cross-machine
+  comparison); the trap is that it fails *quietly* — a plausible-looking Low rather than a
+  refusal. Nothing outside the reference machine should be severity-scored.
 
 ## Outstanding
 
@@ -244,6 +250,9 @@ captured on every memory job; read it on the next real run before theorising.
 
 1. **A held-out row from CIC-MalMem-2022** fed straight through the inference path.
    In-distribution, OOD count zero, verdict displayed. *Proves the model works.*
+   **Ready:** `data/holdout/malmem_test_{malicious,benign}.npy`, p=0.997147 / 0.002813,
+   both correct, OOD 0/55. **Show probability and OOD only — not severity**, which is
+   calibrated to a different machine and reads Low on this row.
 2. **A real capture from the reference machine.** OOD fires (unless item 2 above shows
    otherwise); forensic findings and MITRE mapping still deliver value. *Proves the guard
    works.*
@@ -287,6 +296,35 @@ genuinely held-out, labelled rows into `data/holdout/`, which **is** committed:
 - `scripts/ember_holdout.py` pulls a labelled row from EMBER 2018's published
   `test_features.jsonl` and vectorises it with `process_raw_features()` — **no PE is
   opened and lief never parses anything**.
+
+**Both pipelines now classify their own held-out data correctly** (2026-08-01).
+
+`malmem_holdout.py` passed all four gates on the first run: 58,596 → **58,062** after
+dedup, split **41,456 / 8,288 / 8,318** exactly, test balance 4,174/4,144, zero group
+overlap. 32,137 distinct groups — 29,231 benign (one per row) plus 2,906 malware samples,
+which lines up with the paper's 2,916 before dedup. The dedup variant that lands on 58,062
+is **`drop_duplicates()` across all columns, whole frame, before group keys are built**.
+
+| Row | Label | Probability | Verdict | OOD | |
+|---|---|---:|---|---|---|
+| `malmem_test_malicious` (Ransomware-Ako) | Malware | **0.997147** | MALWARE | **0/55** | correct |
+| `malmem_test_benign` | Benign | **0.002813** | BENIGN | **0/55** | correct |
+
+**OOD 0 of 55 on both confirms the gate is doing what it claims** — it fires on real
+captures (21/55) and stays silent on in-distribution rows.
+
+**But severity on a dataset row is meaningless, and the demo must not show it.** The
+Ransomware row scores severity **Low**, with every indicator reading *"consistent with a
+healthy system"* — because severity compares against `baselines/clean_win10_x64.json`, a
+*different machine* that simply runs more of everything (ldrmodules 89 vs 267,
+`malfind.commitCharge` 49 vs 1611). That is precisely the cross-machine comparison §11.1
+forbids. **Demo 1 shows probability and OOD only.** The findings → tags → severity path
+can only be demonstrated by the simulated-malicious capture from the reference machine.
+
+Worth noting for the write-up: LIME's top driver on this true positive is
+`svcscan.nservices`, then `psxview.not_in_eprocess_pool` and
+`svcscan.shared_process_services` — the model leaning on service counts exactly as §5.4a
+says, even when it is right.
 
 **The disk true positive is done and it is genuine** (2026-08-01). Both held-out EMBER
 test rows classify correctly through the shipped inference path:

@@ -1,0 +1,11 @@
+{
+  "source": "CIC-MalMem-2022 test split, held out from training",
+  "csv_row_after_dedup": 5,
+  "category": "Benign",
+  "class": "Benign",
+  "group": "benign_5",
+  "split_reproduced": true,
+  "model_probability": 0.0028133445885032415,
+  "model_verdict": "benign",
+  "ood_features": 0
+}

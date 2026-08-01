@@ -1,0 +1,11 @@
+{
+  "source": "CIC-MalMem-2022 test split, held out from training",
+  "csv_row_after_dedup": 29291,
+  "category": "Ransomware-Ako-0a1fc3cee4e918f9dfed104624a5aea3940c1f992ca7e59dfbf6ea4472e417cd-1.raw",
+  "class": "Malware",
+  "group": "Ransomware-Ako-0a1fc3cee4e918f9dfed104624a5aea3940c1f992ca7e59dfbf6ea4472e417cd",
+  "split_reproduced": true,
+  "model_probability": 0.997147262096405,
+  "model_verdict": "malware",
+  "ood_features": 0
+}
