@@ -109,6 +109,11 @@ def main():
             if job.ood_count is not None:
                 print(f"    ood     : {job.ood_count} of 55   "
                       f"gaps: {len(job.extraction_gaps or [])}")
+            if job.plugin_seconds:
+                # Runtime varies ~2x between runs and the cause is not identified;
+                # these are what will localise it. Slowest first.
+                slow = sorted(job.plugin_seconds.items(), key=lambda kv: -kv[1])
+                print("    timings : " + "  ".join(f"{k}={v}s" for k, v in slow[:5]))
 
             for r in sorted(job.results, key=lambda r: -r.probability)[:3]:
                 print(f"      p={r.probability:.4f} {r.severity or '-':8s} "

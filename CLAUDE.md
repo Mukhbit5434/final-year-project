@@ -471,12 +471,32 @@ first thing that settles it for every format, and it settles it **before any of 
 plugins run**, so a rejected capture costs one layer build and no extraction work.
 
 Volatility 3 resolves Windows kernel symbols by downloading PDB-derived ISF JSON from
-`downloads.volatilityfoundation.org` on first encounter with an unseen build. On an
-offline machine memory extraction fails with a confusing symbol error. **Pre-populate the
-symbol cache** for the builds being analysed, ship it alongside the app, and document it.
+`downloads.volatilityfoundation.org` on first encounter with an unseen build, and caches
+it under the *user's* AppData — outside the project, so a fresh checkout or an offline
+machine re-downloads or fails minutes into a job.
 
-**Runtime varies by 2× with machine state, and the "2.3× job-layer overhead" was never
-real.** Measured on the same 2 GB x64 capture, same machine, symbol cache warm:
+**`scripts/fetch_symbols.py` stages the ISF into the repo-local `symbols/`**, which
+`extractors/memory.py:_use_local_symbols` prepends to `volatility3.symbols.__path__`.
+Run it once per build while online:
+
+```
+scripts\fetch_symbols.py sample\memory\win10_memory.raw
+scripts\fetch_symbols.py --list
+```
+
+Two things worth knowing. The path is set **in the extractor, not in `create_app`** —
+extraction runs in a worker process that never builds the Flask app, so wiring it into
+startup would miss the only process that needs it. And ISFs are stored **verbatim, still
+compressed**: volatility reads `.json.xz` directly from a symbols directory, and the
+staged file is 0.6 MB against ~100 MB expanded.
+
+Verified offline: with `volatility3.framework.constants.OFFLINE = True`, `build_context`
+resolves the Win10 19044 capture in 1.9 s with no network access. `symbols/` is gitignored
+— it is per-build and per-deployment, so populate it on each machine rather than
+committing it.
+
+**Runtime varies roughly 2× between runs on identical input; the cause is not
+identified.** Measured on the same 2 GB x64 capture, same machine, symbol cache warm:
 
 | Run | Memory job | Disk job |
 |---|---:|---:|
@@ -484,14 +504,20 @@ real.** Measured on the same 2 GB x64 capture, same machine, symbol cache warm:
 | 2026-07-31, through the job layer | 409 s | 27 s |
 | 2026-08-01, through the job layer | **202 s** | 14 s |
 
-**The job layer costs about 2%** — 401 s standalone against 409 s end to end, taken
-minutes apart. What moves the number is the machine, not the code: the same work took
-202 s and 409 s on two runs a day apart, and the disk artifact ranged 11–27 s on identical
-input. An earlier draft compared a fast standalone run against a slow job run and inferred
-a penalty that does not exist. Measure both halves in one sitting or not at all.
+**Say exactly that — "varies roughly 2× between runs, cause not identified".** Do not
+quote a range: two uncontrolled samples are not a characterised distribution, and a range
+implies a measurement nobody made. Only wall-clock was recorded. Page-cache state,
+background CPU and per-plugin cost were never captured; a cold ISF download is the one
+cause ruled out, because it adds ~4 minutes and would dwarf the swing.
 
-Quote **3.5 to 7 minutes** for a 2 GB memory capture, and never a single figure — one
-number here is measurement noise dressed up as a specification.
+`extract()` now records `plugin_seconds` per plugin and the job persists it, so the next
+real run localises this: an even spread points at the machine, one plugin moving points at
+that plugin's I/O. `verify_pipeline.py` prints the five slowest.
+
+**The job layer itself costs about 2%** — 401 s standalone against 409 s end to end, taken
+minutes apart. An earlier draft compared a fast standalone run against a slow job run and
+inferred a 2.3× penalty that does not exist. Measure both halves in one sitting or not at
+all.
 
 The first run on an unseen build adds ~4 minutes of ISF download on top. Runtime scales
 with dump size and process count, and a large multi-socket capture will be far slower.
@@ -1396,7 +1422,10 @@ app/
   report.py              limitations() + render(); REQUIRED_* mandatory strings
 baselines/clean_win10_x64.json    the reference capture and its ground truth
 scripts/                 setup_env, check_env, patch_ember, scan_image,
-                         dump_memory_features, predict_vector
+                         dump_memory_features, predict_vector, fetch_symbols,
+                         malmem_holdout, ember_holdout
+data/holdout/            labelled held-out rows; the rest of data/ is gitignored
+symbols/                 repo-local ISF cache, gitignored, per-deployment
 ```
 
 **The UI is Bootstrap plus one stylesheet of our own.** `static/app.css` holds the design

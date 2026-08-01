@@ -56,8 +56,24 @@ set FLASK_APP=wsgi.py
 re-importing the main module, so anything at module level runs again in every worker —
 with a single entry point, each worker built a second Flask app and reloaded both models.
 
-Volatility downloads Windows symbol tables on first encounter with an unseen build, so
-the first analysis of a given build needs a network connection. After that it is cached.
+### Offline use — stage the kernel symbols first
+
+Volatility downloads a Windows symbol table (ISF) on first encounter with an unseen build,
+and caches it under the *user's* AppData rather than in the project. Stage it into the
+repo instead, once per build, while online:
+
+```
+.venv\Scripts\python scripts\fetch_symbols.py sample\memory\win10_memory.raw
+.venv\Scripts\python scripts\fetch_symbols.py --list
+```
+
+That writes `symbols/windows/<GUID>.json.xz` (0.6 MB — volatility reads ISFs compressed),
+which the extractor puts at the front of its symbol search path. After this the build
+analyses with no network at all; verified with volatility's own `OFFLINE` flag, resolving
+in 1.9 s. `symbols/` is gitignored, so populate it on each machine.
+
+Without this, an offline machine fails several minutes into a job with a symbol error that
+does not obviously say "no network".
 
 ---
 
@@ -111,8 +127,12 @@ app/
   explain.py              LIME, resolved through as_map() indices
   report.py               ReportLab PDF; limitations defined once, shared with the UI
   jobs.py                 Flask-Executor supervisor + ProcessPoolExecutor extraction
+  static/app.css          design tokens and the severity colour scale, shared with charts
+  templates/              landing page, dashboard, jobs, job detail, upload
 models/  reference_data/  trained artifacts and training distributions - never modify
 baselines/               clean-system reference captures
+data/holdout/            labelled held-out rows; the rest of data/ is gitignored
+symbols/                 repo-local kernel ISF cache, gitignored, per-deployment
 scripts/                 environment setup, verification, manual extraction runs
 ```
 
@@ -145,9 +165,24 @@ The checks worth knowing about:
 Useful scripts:
 
 ```
+scripts\verify_pipeline.py                 end-to-end against everything in sample/
 scripts\scan_image.py <image>              disk extraction + predictions
 scripts\dump_memory_features.py <dump>     all 55 values against their training ranges
+scripts\predict_vector.py <pipeline> ...   one pre-extracted vector through inference
+scripts\fetch_symbols.py <dump>            stage kernel symbols for offline use
+scripts\malmem_holdout.py --csv ...        labelled held-out CIC-MalMem-2022 rows
+scripts\ember_holdout.py --tar ...         labelled held-out EMBER 2018 rows
 ```
+
+`verify_pipeline.py` is the one that matters after any change to extraction, inference or
+reporting — unit tests do not catch what it catches.
+
+**Runtime varies roughly 2× between runs on identical input and the cause is not
+identified.** A 2 GB memory capture has taken both 202 s and 409 s on the same machine
+with the symbol cache warm, and the same disk image has ranged 11–27 s. Only wall-clock
+was ever measured, so this is stated rather than characterised; `Job.plugin_seconds`
+records per-plugin cost on every memory job so the next run can localise it. The job
+layer itself accounts for about 2%.
 
 ---
 

@@ -13,6 +13,13 @@ uploads/
 # the repo deliberately; document where to obtain them instead.
 sample/
 
+# Source datasets: the CIC-MalMem-2022 CSV and the EMBER 2018 tarball. Gigabytes,
+# publicly obtainable, and not ours to redistribute. The held-out rows derived
+# from them under data/holdout/ ARE committed - they are a few KB and the demos
+# depend on them.
+data/*
+!data/holdout/
+
 # Volatility 3 ISF symbol cache - large, and machine/build specific.
 # Pre-populate it per deployment; see CLAUDE.md 5.5.
 symbols/

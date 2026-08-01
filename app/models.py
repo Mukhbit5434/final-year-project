@@ -81,6 +81,9 @@ class Job(db.Model):
     extraction_gaps = db.Column(db.JSON)
     ood_count = db.Column(db.Integer)
     ood_fields = db.Column(db.JSON)
+    # {plugin: seconds}. Kept because total runtime varies ~2x between runs on
+    # identical input and the cause is not identified - see STATUS.md.
+    plugin_seconds = db.Column(db.JSON)
 
     user = db.relationship("User", back_populates="jobs")
     results = db.relationship("Result", back_populates="job",

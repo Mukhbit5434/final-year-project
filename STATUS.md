@@ -36,12 +36,19 @@ services+drivers 632 vs 615. Extraction is correct in absolute terms; the traini
 really is far below reality. Clean capture scored **p=0.0084, severity Low** — correctly
 benign despite 21 of 55 features being out of range.
 
-**Runtime — resolved 2026-07-31, range confirmed 2026-08-01.** Standalone extraction 401 s
-against 409 s end to end, minutes apart: **the job layer costs about 2%.** But the same
-memory job ran in **202 s** the next day, and the disk job has ranged 11–27 s on identical
-input — machine state moves this by 2×. Quote **3.5–7 minutes** for a 2 GB capture, never
-a single number. The old "2.3× overhead" was a fast standalone run compared against a slow
-job run.
+**Runtime — job-layer overhead resolved; run-to-run variance NOT explained.** Standalone
+extraction 401 s against 409 s end to end, minutes apart: **the job layer costs about 2%**,
+and the old "2.3× overhead" was a fast standalone run compared against a slow job run.
+
+But the same memory job ran in **202 s** the next day and the disk job has ranged
+**11–27 s** on identical input. **Cause not identified.** Only wall-clock was ever
+recorded — no page-cache state, no background-load sampling, no per-plugin timing. A cold
+ISF download is the one thing ruled out (it adds ~4 min and would dwarf this). Say
+"varies roughly 2× between runs, cause not identified"; do not quote a range, which would
+imply a distribution nobody measured.
+
+`Job.plugin_seconds` now records per-plugin cost on every memory job and
+`verify_pipeline.py` prints the slowest five, so the next real run should localise it.
 
 **Web** — every route returns against real data; PDFs render for both pipelines; uploaded
 artifacts are unreachable over HTTP.
@@ -91,8 +98,10 @@ set FLASK_APP=wsgi.py
 scripts\verify_pipeline.py                           # end-to-end against sample/
 scripts\scan_image.py <image>                        # disk extraction + predictions
 scripts\dump_memory_features.py <dump>               # 55 values vs training ranges
-scripts\predict_vector.py memory --csv <malmem.csv> --row 12
 scripts\predict_vector.py disk --reference 0         # one vector through inference
+scripts\fetch_symbols.py <dump>                      # stage kernel ISF for offline use
+scripts\malmem_holdout.py --csv data\Obfuscated-MalMem2022.csv
+scripts\ember_holdout.py --tar data\ember_dataset_2018_2.tar.bz2
 ```
 
 `verify_pipeline.py` is the one that matters after any change to extraction, inference or
@@ -142,8 +151,15 @@ raised nothing. Kept here because the pattern is the argument for testing on rea
 
 ## Outstanding
 
-Nothing blocks the build. Four items — 3 and 4 are done; 1 and 2 remain and both need the
-reference-machine captures.
+**Everything that does not need new artifacts is done.** What remains is items 1 and 2,
+both of which wait on captures from the reference machine, plus the write-up. Testing of
+the supplied artifacts happens in **one pass** once they all land — clean `.raw` set,
+simulated-malicious `.raw`, and a disk image with simulated malicious elements. Test
+infrastructure for those is deliberately **not** built yet; it gets specified together
+with the captures.
+
+Also pending from the user: the path to `Obfuscated-MalMem2022.csv` (place it in `data/`,
+which is gitignored) so `malmem_holdout.py` can be run and its four-check gate verified.
 
 ### 1. Captures from the reference machine — user supplies
 
@@ -190,6 +206,13 @@ optimism.** This is not reopening the distribution investigation — the SMOTE r
 closed and stays closed. It only measures whether the gate is correctly calibrated for the
 reference machine.
 
+### 2b. Symbol cache — **done 2026-08-01**
+
+`scripts/fetch_symbols.py` stages the ISF into repo-local `symbols/`; the extractor
+prepends it to volatility's search path. Verified with `constants.OFFLINE = True`: the
+Win10 19044 capture resolves in 1.9 s with no network. Documented in README and CLAUDE.md
+§5.6.
+
 ### 3. Enforce the reference-environment scope statement — **done 2026-07-31**
 
 `report.SCOPE_STATEMENT` holds the §11.1 wording, `report.limitations()` emits it for
@@ -204,12 +227,16 @@ escapes `(` as `\(` — so a fragment spanning "(Windows 10 x64)" would pass pyt
 `text_of` strips parens, and fail the pipeline check. Both fragments were confirmed
 against the raw-byte path as well as the collapsed-text one.
 
-### 4. Investigate the runtime discrepancy — **closed 2026-07-31**
+### 4. Runtime — job-layer question closed, variance still open
 
-There was no discrepancy. Standalone 401 s vs 409 s through the job layer, same machine,
-minutes apart: the job layer adds 2%. The old figures were taken under different machine
-conditions and were never comparable — confirmed the next day when the same job ran in
-202 s, which is roughly the original "standalone" figure the penalty was inferred from.
+The *job-layer* discrepancy was not real: standalone 401 s vs 409 s through the job layer,
+same machine, minutes apart, so the supervisor adds ~2%. Confirmed the next day when the
+same job ran in 202 s — roughly the original "standalone" figure the phantom penalty was
+inferred from.
+
+**Still open: why identical input varies ~2× run to run.** Not investigated, not
+characterised, and the docs say so rather than implying otherwise. `plugin_seconds` is now
+captured on every memory job; read it on the next real run before theorising.
 
 ## Demo plan
 
@@ -242,10 +269,22 @@ severity Low; disk reference row 0 → p=0.8226, MALWARE, severity Medium, with 
 findings and MITRE tags. The contrast that matters for demo 1 is the OOD count — 0 on an
 in-distribution row against 21 on a real capture.
 
-**What is still missing is labelled held-out data.** `reference_data/` rows are
-*unlabelled training samples*; the script says so on every `--reference` run and must not
-be presented as a verified true positive. Demos 1 and 3 need a CIC-MalMem-2022 CSV row and
-an EMBER test row respectively, neither of which is in the repo.
+**Labelled held-out rows now have their own tooling.** `reference_data/` rows are
+*unlabelled training samples* — `predict_vector.py` says so on every `--reference` run and
+they must never be presented as a verified true positive. The two scripts below produce
+genuinely held-out, labelled rows into `data/holdout/`, which **is** committed:
+
+- `scripts/malmem_holdout.py` reproduces the memory training split exactly —
+  StratifiedGroupKFold(7) then (6), first fold each, `random_state=42`, groups = Category
+  minus the `-N.raw` suffix, **each benign row its own group** (benign Category values are
+  indistinguishable, so keying on the string alone collapses them into one group and drops
+  the whole benign half into one fold). Dedup is `drop_duplicates()` over all columns
+  before group keys are built. It **refuses to emit anything** unless row counts
+  (41,456/8,288/8,318), test class balance (4,174/4,144), dedup total (58,062) and
+  group disjointness all match `models/memory/metadata.json`.
+- `scripts/ember_holdout.py` pulls a labelled row from EMBER 2018's published
+  `test_features.jsonl` and vectorises it with `process_raw_features()` — **no PE is
+  opened and lief never parses anything**.
 
 **A web route for this was considered and rejected.** Rendering a vector result through
 the job pages would mean creating a `Job` row with a fabricated `stored_name`, `sha256`

@@ -255,6 +255,31 @@ def test_all_nine_plugins_exist_in_the_installed_volatility():
         assert plugin in catalog, f"{key} -> {plugin} missing"
 
 
+def test_local_symbols_go_to_the_front_of_the_search_path(monkeypatch, tmp_path):
+    """Offline analysis depends on the repo-local ISF cache being consulted first;
+    volatility's own cache lives in the user's AppData, outside the project."""
+    import volatility3.symbols
+
+    original = list(volatility3.symbols.__path__)
+    monkeypatch.setattr(ex, "SYMBOLS", tmp_path)
+    try:
+        ex._use_local_symbols()
+        assert volatility3.symbols.__path__[0] == str(tmp_path)
+        ex._use_local_symbols()
+        assert volatility3.symbols.__path__.count(str(tmp_path)) == 1, "not idempotent"
+    finally:
+        volatility3.symbols.__path__ = original
+
+
+def test_local_symbols_is_a_no_op_when_the_directory_is_absent(monkeypatch, tmp_path):
+    import volatility3.symbols
+
+    original = list(volatility3.symbols.__path__)
+    monkeypatch.setattr(ex, "SYMBOLS", tmp_path / "nope")
+    ex._use_local_symbols()
+    assert list(volatility3.symbols.__path__) == original
+
+
 def test_psxview_still_exposes_only_the_four_columns_we_mapped():
     # If a volatility3 upgrade restores pspcid/session/deskthrd this fails, which
     # is the point - the mapping must be rebuilt from the installed source.

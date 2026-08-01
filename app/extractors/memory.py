@@ -1,7 +1,11 @@
+import logging
 import sys
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 # Volatility 2's vadinfo.PROTECT_FLAGS, index-for-index. malfind.protection in
 # CIC-MalMem-2022 sums these *indices*, not the Win32 constants: mean protection
@@ -64,6 +68,23 @@ class ExtractionError(RuntimeError):
     pass
 
 
+# Repo-local ISF cache. Volatility's own cache lives in the user's AppData, so a
+# fresh checkout or an offline machine would re-download - or fail. Set here, not
+# in create_app: extraction runs in a worker process that never builds the Flask
+# app. scripts/fetch_symbols.py populates it.
+SYMBOLS = Path(__file__).resolve().parents[2] / "symbols"
+
+
+def _use_local_symbols():
+    import volatility3.symbols
+
+    if not SYMBOLS.is_dir():
+        return
+    path = str(SYMBOLS)
+    if path not in volatility3.symbols.__path__:
+        volatility3.symbols.__path__ = [path] + list(volatility3.symbols.__path__)
+
+
 def _url(path):
     # pathname2url handles the spaces in this project's own path, which a naive
     # "file://" + str(path) does not.
@@ -90,6 +111,7 @@ def build_context(dump, catalog=None):
     from volatility3.framework.layers import intel
     import volatility3.plugins
 
+    _use_local_symbols()
     framework.import_files(sys.modules["volatility3.framework.layers"])
     if catalog is None:
         framework.import_files(volatility3.plugins, True)
@@ -416,14 +438,24 @@ def extract(dump, feature_names, progress=None):
     framework.import_files(volatility3.plugins, True)
     catalog = framework.list_plugins()
 
+    # Total runtime has been seen to vary by 2x between runs on identical input
+    # and the cause is not identified. Per-plugin timings are the cheapest way to
+    # localise it: even spread points at the machine, one plugin moving points at
+    # that plugin's I/O.
+    timings = {}
+    t0 = time.perf_counter()
     prepared = build_context(dump, catalog)
+    timings["build_context"] = round(time.perf_counter() - t0, 1)
 
     collected = {}
     for key, plugin in PLUGINS.items():
         if progress:
             progress(key, plugin)
+        started = time.perf_counter()
         _, rows = run_plugin(dump, plugin, catalog, prepared)
         collected[key] = rows
+        timings[key] = round(time.perf_counter() - started, 1)
+        log.info("%s: %d rows in %.1fs", plugin, len(rows), timings[key])
 
     raw_services = len(collected["svcscan"])
     collected["svcscan"] = dedupe_services(collected["svcscan"])
@@ -447,5 +479,6 @@ def extract(dump, feature_names, progress=None):
     vec, gaps = assemble(parts, feature_names, unknown, torn)
     counts = {k: len(v) for k, v in collected.items()}
     return {"vec": vec, "gaps": gaps, "plugin_rows": counts, "bits": prepared["bits"],
+            "plugin_seconds": timings,
             "torn_process_rows": torn, "svcscan_raw_rows": raw_services,
             "svcscan_duplicate_ratio": raw_services / max(len(collected["svcscan"]), 1)}

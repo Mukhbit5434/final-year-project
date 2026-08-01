@@ -231,6 +231,7 @@ def _memory(app, job, path):
     job.extraction_gaps = out["gaps"]
     job.ood_count = count
     job.ood_fields = fields
+    job.plugin_seconds = out.get("plugin_seconds")
 
     # Evidence first. These are Volatility's measurements of this dump and hold
     # whatever the probability says, so they are collected regardless of verdict.
