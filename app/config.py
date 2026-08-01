@@ -32,6 +32,11 @@ class Config:
     MAX_PE_FILES = int(os.environ.get("MAX_PE_FILES", 500))
     MAX_PE_BYTES = int(os.environ.get("MAX_PE_MB", 64)) * 1024 ** 2
 
+    # Uploads per user per hour. A capture session runs five clean dumps, a
+    # malicious one, a disk image and retries through this in one sitting, so the
+    # old hardcoded 10 stopped work halfway. Still a limit, just a workable one.
+    UPLOAD_RATE_LIMIT = os.environ.get("UPLOAD_RATE_LIMIT", "60 per hour")
+
     # Supervisor pool only. Extraction itself goes to a ProcessPoolExecutor -
     # lief segfaults must not take the web process with them (hard rule 20).
     EXECUTOR_TYPE = "thread"
@@ -52,6 +57,9 @@ class TestConfig(Config):
     SQLALCHEMY_DATABASE_URI = "sqlite://"
     WTF_CSRF_ENABLED = False
     SECRET_KEY = "test"
+    # Low on purpose: the production limit is deliberately loose enough for a
+    # capture session, which would take too many requests to reach in a test.
+    UPLOAD_RATE_LIMIT = "10 per hour"
     # Loading two boosters plus 8 MB of reference data on every app fixture would
     # dominate the suite. The inference tests load them once themselves.
     LOAD_MODELS = False

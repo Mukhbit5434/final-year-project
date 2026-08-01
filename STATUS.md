@@ -254,28 +254,36 @@ viva.
    malicious memory data we have is CIC-MalMem rows, which are cross-machine and therefore
    read Low. Unit tests drive the function directly, but no real artifact has ever taken it
    to High or Critical. The simulated-malicious capture is the first thing that will.
-2. **The four-check refusal gate in `malmem_holdout.py` has never been seen to refuse.**
-   It passed on the first run, so the failure path is untested. A test feeding a
-   deliberately wrong split and asserting refusal is the obvious missing piece.
-3. **Five of seven scripts have no tests** — `malmem_holdout`, `ember_holdout`,
-   `predict_vector`, `fetch_symbols`, `scan_image`, `dump_memory_features`. Only
-   `verify_pipeline` is exercised. They are operator tools, but two of them now produce
-   committed artifacts.
-4. **`predict_vector.py` prints severity for memory vectors that are not from the
-   reference machine**, where it is meaningless (see the limitation above). It should
-   suppress or caveat it; today it just prints Low. Known, not fixed.
-5. **The UI has no visual regression testing.** Route tests assert strings, not layout — a
+2. **Four of seven scripts have no tests** — `ember_holdout`, `predict_vector`,
+   `fetch_symbols`, `scan_image`, `dump_memory_features`. `malmem_holdout` and
+   `verify_pipeline` are covered.
+3. **The UI has no visual regression testing.** Route tests assert strings, not layout — a
    CSS mistake would keep every test green.
-6. **`recover_orphans` does not clear `stage` / `progress_pct` or the orphaned
-   `instance/progress/<id>.json`** after a crash. Harmless (the progress card only renders
-   for PENDING/RUNNING) but untidy.
-7. **Disk progress is indeterminate** — "Vectorising executable N" with no percentage,
+4. **Disk progress is indeterminate** — "Vectorising executable N" with no percentage,
    because the PE count is unknown until the walk finishes.
-8. **Held-out rows are the first matching row of each class**, not randomly sampled. Fine
+5. **Held-out rows are the first matching row of each class**, not randomly sampled. Fine
    for a demo, recorded in the sidecar JSON, but it is one arbitrary row per class.
-9. **Per-plugin timing is memory-only.** The disk extractor has no equivalent.
-10. **Upload rate limit is 10/hour, hardcoded** in `routes.py`. A one-pass session with
-    five clean captures, a malicious one, a disk image and any retries will approach it.
+6. **Per-plugin timing is memory-only.** The disk extractor has no equivalent.
+
+### Closed 2026-08-02
+
+- **The refusal gate has now been exercised failing.** Against the real CSV: wrong outer
+  `n_splits` (5), wrong inner (4), `random_state=0`, collapsed benign group keys and a
+  one-row dedup error were each refused. `random_state=0` is the instructive one — it
+  produces 41,533/8,257/8,272, within 80 rows of correct, which no eyeball would catch. A
+  group-ignoring random split produced the **exactly correct** row counts and was caught by
+  class balance plus **2,277 shared groups** between train and test, so the disjointness
+  gate is load-bearing rather than redundant. `tests/test_malmem_holdout.py` pins each
+  failure path without needing the 19 MB CSV.
+- **Upload rate limit is configurable** — `UPLOAD_RATE_LIMIT`, env-overridable, default
+  `60 per hour` (was a hardcoded 10). Read per request via a callable, so it can be raised
+  for a capture session without editing `routes.py`. `TestConfig` pins it low so the
+  limiter is still exercised.
+- **`recover_orphans` now clears `stage` / `progress_pct` and unlinks the orphaned
+  progress file.**
+- **`predict_vector.py` no longer prints memory severity at all.** A bare vector carries no
+  provenance, so severity is suppressed with a stated reason rather than computed against a
+  foreign baseline.
 
 ## Demo plan
 

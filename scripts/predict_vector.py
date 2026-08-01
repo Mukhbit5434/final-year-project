@@ -51,7 +51,7 @@ def _from_csv(path, row_index, names):
 
 def _memory(vec, label):
     from app import explain
-    from app.forensics import baseline, meanings, mitre, severity
+    from app.forensics import baseline, meanings, mitre
     from app.inference import memory as model
 
     prob, malicious = model.predict(vec)
@@ -75,10 +75,17 @@ def _memory(vec, label):
     observed = meanings.observed(vec, names)
     elevated = baseline.compare(observed)
     matched = mitre.match(list(observed), "memory")
-    standout = mitre.match([f for f, hi in elevated.items() if hi], "memory")
-    sev, note = severity.for_memory(elevated, standout, prob, reliable,
-                                    baselined=baseline.loaded())
-    print(f"\n  severity         {sev}\n  basis            {note}")
+
+    # No severity here, ever. Memory severity is calibrated against one reference
+    # machine's clean baseline, and a bare vector carries no provenance at all -
+    # there is no artifact, no kernel, nothing that says which machine it came
+    # from. Scoring a CIC-MalMem row against the reference baseline returns Low
+    # with every indicator "consistent with a healthy system", which is a
+    # confident wrong answer rather than a missing one. CLAUDE.md 11.1.
+    print("\n  severity         not scored")
+    print("  basis            severity needs a capture of the reference machine; a "
+          "bare vector\n                   carries no provenance, so it is suppressed "
+          "rather than guessed")
 
     print(f"\n  observed indicators ({len(observed)}):")
     for feature, value in sorted(observed.items(), key=lambda kv: -kv[1])[:8]:

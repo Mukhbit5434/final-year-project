@@ -157,7 +157,10 @@ def job_status(job_id):
 
 @bp.route("/upload", methods=["GET", "POST"])
 @login_required
-@limiter.limit("10 per hour", methods=["POST"])
+# Callable, not a literal: a capture session uploads five clean dumps plus a
+# malicious one plus a disk image plus retries, and a hardcoded limit would stop
+# it halfway through. UPLOAD_RATE_LIMIT is read per request.
+@limiter.limit(lambda: current_app.config["UPLOAD_RATE_LIMIT"], methods=["POST"])
 def upload():
     form = UploadForm()
     if not form.validate_on_submit():

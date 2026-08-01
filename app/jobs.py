@@ -281,6 +281,11 @@ def recover_orphans(app):
             job.status = FAILED
             job.error = "interrupted: the server stopped while this job was running"
             job.finished_at = utcnow()
+            # The worker died mid-stage, so the row still claims to be running
+            # windows.handles and its progress file is orphaned.
+            job.stage = None
+            job.progress_pct = None
+            _progress_file(app, job.id).unlink(missing_ok=True)
         if stale:
             log.warning("marked %d interrupted job(s) as failed", len(stale))
             db.session.commit()

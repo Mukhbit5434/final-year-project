@@ -123,6 +123,15 @@ def test_upload_rate_limit(client, signed_in):
     assert db.session.query(Job).count() == 10
 
 
+def test_the_rate_limit_comes_from_config(client, signed_in):
+    """It is read per request, not baked in at registration - otherwise raising it
+    for a capture session would mean editing routes.py."""
+    client.application.config["UPLOAD_RATE_LIMIT"] = "3 per hour"
+    codes = [send(client, MBR).status_code for _ in range(5)]
+    assert codes.count(429) == 2, codes
+    assert db.session.query(Job).count() == 3
+
+
 @pytest.mark.parametrize("data,expected", [
     (MBR, DISK), (GPT, DISK), (CRASH, MEMORY), (VMEM, None),
 ])
