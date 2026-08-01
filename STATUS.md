@@ -257,6 +257,8 @@ captured on every memory job; read it on the next real run before theorising.
    detection and a **known false positive**, never as malware detection.
 3. **A known-malicious row from EMBER's test set** fed straight through the disk inference
    path — a genuine true positive on real malware data, with no malware files handled.
+   **Ready:** `data/holdout/ember_test_malicious.npy`, p=0.999838, correct against its
+   label. The benign counterpart scores 0.017917, also correct.
 
 **Prerequisite — built 2026-08-01.** `scripts/predict_vector.py` is the entry point for a
 raw vector. It runs the same loaders, thresholds, LIME explainer, tag table and severity
@@ -285,6 +287,21 @@ genuinely held-out, labelled rows into `data/holdout/`, which **is** committed:
 - `scripts/ember_holdout.py` pulls a labelled row from EMBER 2018's published
   `test_features.jsonl` and vectorises it with `process_raw_features()` — **no PE is
   opened and lief never parses anything**.
+
+**The disk true positive is done and it is genuine** (2026-08-01). Both held-out EMBER
+test rows classify correctly through the shipped inference path:
+
+| Row | Label | Probability | Verdict | |
+|---|---|---:|---|---|
+| `ember_test_malicious` | 1 | **0.999838** | MALWARE | correct |
+| `ember_test_benign` | 0 | **0.017917** | BENIGN | correct |
+
+Through `predict_vector.py` the malicious row gives severity **High**, tags T1106 and
+T1553.002, and LIME findings led by `section_feat_122` and the certificate-table entry.
+This is real malware data from the published held-out split, classified by the model that
+scores 0.9940 against the official baseline — and no malicious binary was ever opened.
+`predict_vector.py --npy` reads the sidecar `.json` so the ground-truth label prints next
+to the verdict.
 
 **A web route for this was considered and rejected.** Rendering a vector result through
 the job pages would mean creating a `Job` row with a fabricated `stored_name`, `sha256`

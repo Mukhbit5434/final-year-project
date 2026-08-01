@@ -1,0 +1,11 @@
+{
+  "source": "EMBER 2018 test_features.jsonl, the published held-out split",
+  "line": 0,
+  "sha256": "163ced46c18ef09d8e2f0ee4b16decf74a533f22ba3b599c72a6730435f32cc9",
+  "label": 1,
+  "appeared_in": "2018-11",
+  "model_probability": 0.9998382052211012,
+  "model_verdict": "malware",
+  "agrees_with_label": true,
+  "note": "vectorised from the published raw features; no PE was parsed"
+}

@@ -1,0 +1,11 @@
+{
+  "source": "EMBER 2018 test_features.jsonl, the published held-out split",
+  "line": 1,
+  "sha256": "8d32f3535d31795886bf62523ec9035d843ef0e2c7032ba9f8f1abbcd446c708",
+  "label": 0,
+  "appeared_in": "2018-11",
+  "model_probability": 0.01791731095169136,
+  "model_verdict": "benign",
+  "agrees_with_label": true,
+  "note": "vectorised from the published raw features; no PE was parsed"
+}

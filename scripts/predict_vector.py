@@ -15,6 +15,7 @@ they are not a verified true positive and must never be presented as one.
 """
 import argparse
 import csv
+import json
 import sys
 from pathlib import Path
 
@@ -158,6 +159,14 @@ def main():
     elif args.npy:
         vec = np.load(args.npy).astype(np.float32).reshape(-1)
         source = Path(args.npy).name
+        # The holdout scripts write a sibling .json carrying the ground-truth label;
+        # picking it up is what turns this from a demo into a check.
+        sidecar = Path(args.npy).with_suffix(".json")
+        if sidecar.exists():
+            meta = json.loads(sidecar.read_text())
+            label = meta.get("class") or meta.get("label")
+            label = {0: "benign", 1: "malware"}.get(label, label)
+            source += f"  ({meta.get('source', 'labelled')})"
     else:
         sample = np.load(REFERENCE / f"{args.pipeline}_sample.npy")
         if not 0 <= args.reference < len(sample):
