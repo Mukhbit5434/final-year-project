@@ -343,6 +343,14 @@ def render(job, compress=True):
         flow.append(KeepTogether(block))
         flow.append(Spacer(1, 6))
 
+    # Configuration counts, kept visually apart from the findings above so it is
+    # never read as an indicator. It cannot reach severity by construction.
+    volumetric = (job.volumetric or {}) if job.artifact == MEMORY else {}
+    if volumetric.get("note"):
+        flow.append(Paragraph("Configuration context", st["h3"]))
+        flow.append(Paragraph(volumetric["note"], st["small"]))
+        flow.append(Spacer(1, 6))
+
     # 5. Per-process locators - the memory counterpart to the disk per-file table.
     sections = evidence_rows(job) if job.artifact == MEMORY else []
     if sections:

@@ -88,6 +88,9 @@ class Job(db.Model):
     # report is investigable rather than a set of counts. Same shape of value the
     # disk pipeline gives per file.
     evidence = db.Column(db.JSON)
+    # Configuration counts elevated against the baseline, reported as context.
+    # Structurally separate from severity - see baseline.volumetric_context.
+    volumetric = db.Column(db.JSON)
 
     user = db.relationship("User", back_populates="jobs")
     results = db.relationship("Result", back_populates="job",

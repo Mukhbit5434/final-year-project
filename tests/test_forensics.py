@@ -83,11 +83,18 @@ def test_mitre_urls_expand_sub_techniques():
 
 def test_all_matching_tags_are_emitted_not_just_one():
     matched = mitre.match(
-        ["malfind.ninjections", "ldrmodules.not_in_init", "svcscan.kernel_drivers"],
+        ["malfind.ninjections", "ldrmodules.not_in_init", "callbacks.nanonymous"],
         "memory")
     tags = {m["tag"] for m in matched}
     assert {"Process Injection", "Hidden Modules / DLL Concealment",
-            "Persistence - Services"} <= tags
+            "Kernel Callbacks / Driver Persistence"} <= tags
+
+
+def test_service_counts_no_longer_assert_a_persistence_technique():
+    """The T1543.003 services row was removed 2026-08-02: a higher service count
+    than the baseline is evidence of installed software, not of persistence."""
+    assert mitre.match(["svcscan.nservices", "svcscan.kernel_drivers",
+                        "svcscan.nactive"], "memory") == []
 
 
 def test_process_hollowing_needs_both_signals():

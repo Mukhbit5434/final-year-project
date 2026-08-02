@@ -873,12 +873,22 @@ no inference — this is a human-authored interpretation layer.
 | Obfuscated / Packed Files | T1027 | moderate | `byte_entropy_*` and `byte_histogram_*` groups, section entropy |
 | Rootkit / Hidden Artifacts | T1014 | high | `psxview.not_in_*` family, `ldrmodules.not_in_mem` |
 | Hidden Modules / DLL Concealment | T1055.001 | high | `ldrmodules.not_in_init`, `not_in_mem`, their `_avg` variants |
-| Persistence — Services | T1543.003 | high | `svcscan.nservices`, `kernel_drivers`, `nactive` |
 | Persistence — Boot/Logon Autostart | T1547 | moderate | `svcscan` autostart-related counts |
 | Kernel Callbacks / Driver Persistence | T1543.003 / T1014 | moderate | `callbacks.ncallbacks`, `nanonymous`, `ngeneric` |
 | Defense Evasion — Unsigned Binary | T1553.002 | **low** | `general_feat_*` signature fields, certificate `datadirectory_feat_*` |
 | Suspicious API Imports | T1106 | moderate | `imports_hash_*` group |
 | Credential API Hooking | T1056.004 | low | `handles` anomalies, `imports_hash_*` group |
+
+**A "Persistence — Services" tag on `svcscan` counts was removed on 2026-08-02 and must
+not be re-added.** A MITRE tag asserts a technique was *observed*; "more services than the
+baseline" is evidence that software was installed, not of service-based persistence.
+Firing it would put a technique claim on ordinary configuration difference — the same
+false-positive shape already fixed twice (the unsigned-binary tag matching on feature name,
+and severity counting indicators that were merely present). Service, driver, process,
+module and handle counts are now reported as **volumetric context** via
+`baseline.volumetric_context()`, which states plainly that elevated counts with no
+behavioural indicator are "consistent with additional software rather than compromise",
+and which is structurally incapable of reaching severity.
 
 **Three IDs were corrected from an earlier draft of this file — do not revert them:**
 

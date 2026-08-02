@@ -123,7 +123,7 @@ came from it.
 Run `run.py`, never `python -m flask run` with a module that builds the app at import —
 see CLAUDE.md §10 on Windows spawn.
 
-## Six silent bugs found by running real artifacts
+## Seven silent bugs found by running real artifacts
 
 None of these would have been caught by unit tests; all produced plausible numbers and
 raised nothing. Kept here because the pattern is the argument for testing on real inputs.
@@ -140,6 +140,14 @@ raised nothing. Kept here because the pattern is the argument for testing on rea
    reading the value, and LIME ranks the certificate table highly either way.
 6. **Clean capture scored Critical** — severity counted indicators that were merely
    present. Every healthy Windows box has malfind, ldrmodules and psxview hits.
+7. **Renderer objects killed the whole worker pool** — volatility returns `BitField` and
+   `UnreadableValue`, not ints. They pickle *inside* the worker and fail on the way back
+   out, so the failure surfaces as `BrokenProcessPool` — every job lost, not one — with a
+   traceback pointing at `concurrent.futures`, nowhere near the cause. The unit tests
+   passed throughout because their fixtures used plain ints. **The clearest case yet for
+   `verify_pipeline.py`:** nothing else in the suite touches a real dump, so nothing else
+   could have caught it. Fixed by coercing every extracted field to a builtin, with a test
+   that feeds an object refusing `int()` and asserts a pickle round-trip.
 
 ## Known limitations, all disclosed in the reports
 
@@ -216,10 +224,20 @@ every threshold. The malicious capture must inject *many, large* regions and be 
 seconds after churning processes. Getting `malfind` and `psxview` both elevated yields two
 distinct high-risk techniques → High, and the ≥2-elevated bump takes it to Critical.
 
-The `ldrmodules` thresholds are unreachable by any safe simulation, because the reference
-machine already sits at 203–267 legitimately. That is worth stating in the write-up rather
-than hiding: the loader-list indicators are only usable on a machine with a much quieter
-baseline.
+**Two things to state openly in the write-up rather than hide. Both are report material,
+not defects.**
+
+1. **`ldrmodules` is unreachable as an elevated indicator on this baseline.** The
+   thresholds are 609–801; a reflective DLL load adds 1–3. The reference machine already
+   sits at 203–267 legitimately, so the loader-list indicators can only ever fire on a
+   machine with a much quieter baseline. They still appear in the findings and in the
+   per-process evidence with their locators — they just cannot drive severity here.
+2. **The short-lived-process scenario is also one of the five clean baseline states.**
+   Spawning and killing processes then capturing within seconds pushes
+   `psxview.not_in_pslist` past its threshold, but a healthy machine closing applications
+   does exactly the same thing. It demonstrates *why psxview alone is not evidence* at
+   least as much as it demonstrates detection, and should be presented that way — which is
+   precisely why severity requires corroboration from a second technique.
 
 ### 2. Empirical test of the OOD gate — planned experiment, not a decision
 

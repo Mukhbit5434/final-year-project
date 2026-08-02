@@ -72,6 +72,72 @@ def phrase(feature, value):
             f"consistent with a healthy system")
 
 
+# How a machine is *configured*, not what it did. These are reported as context
+# and are structurally incapable of reaching severity: severity counts high-risk
+# MITRE techniques matched from meanings.BEHAVIOURAL, and no tag maps to any of
+# these features (see the removal note in mitre.py). An elevated service count
+# means software was installed, which is not a technique.
+VOLUMETRIC = [
+    "svcscan.nservices", "svcscan.kernel_drivers", "svcscan.fs_drivers",
+    "svcscan.shared_process_services", "svcscan.nactive",
+    "pslist.nproc", "dlllist.ndlls", "handles.nhandles", "handles.nmutant",
+    "modules.nmodules",
+]
+
+VOLUMETRIC_LABEL = {
+    "svcscan.nservices": "service and driver count",
+    "svcscan.kernel_drivers": "kernel driver count",
+    "svcscan.fs_drivers": "filesystem driver count",
+    "svcscan.shared_process_services": "shared-process service count",
+    "svcscan.nactive": "running service count",
+    "pslist.nproc": "process count",
+    "dlllist.ndlls": "loaded module count",
+    "handles.nhandles": "open handle count",
+    "handles.nmutant": "mutex count",
+    "modules.nmodules": "kernel module count",
+}
+
+
+def volumetric_context(vec, names, behavioural_elevated):
+    """-> (list of {feature, label, value, baseline, factor}, note or None).
+
+    Configuration counts compared against the baseline. Reported so an analyst can
+    see the machine is busier than when the baseline was taken, and worded to say
+    what that actually means. It never contributes to severity - the caller has no
+    way to make it, since severity takes only the behavioural dict.
+    """
+    if not _data:
+        return [], None
+    ref = _data.get("all_features", {})
+    index = {n: i for i, n in enumerate(names)}
+
+    raised = []
+    for feature in VOLUMETRIC:
+        if feature not in index or feature not in ref:
+            continue
+        value, base = float(vec[index[feature]]), float(ref[feature])
+        if base <= 0 or value <= base * ELEVATED:
+            continue
+        raised.append({"feature": feature,
+                       "label": VOLUMETRIC_LABEL.get(feature, feature),
+                       "value": value, "baseline": base,
+                       "factor": round(value / base, 1)})
+
+    if not raised:
+        return [], None
+
+    named = ", ".join(f"{r['label']} {r['value']:g} against baseline {r['baseline']:g}"
+                      for r in raised)
+    if any(behavioural_elevated.values()):
+        note = (f"Configuration counts are also elevated ({named}). Read alongside the "
+                "behavioural indicators above rather than as an indicator in itself.")
+    else:
+        note = (f"Configuration counts are elevated ({named}) with no behavioural "
+                "indicators present; consistent with additional software rather than "
+                "compromise. This does not contribute to severity.")
+    return raised, note
+
+
 NOTE = (
     "Injected memory regions, loader-list mismatches and process-enumeration "
     "discrepancies all occur on uninfected Windows systems: JIT compilers, browsers "

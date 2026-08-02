@@ -258,6 +258,12 @@
   <div class="card"><div class="fx-empty">No results recorded for this job.</div></div>
 {% endif %}
 
+{% if job.volumetric and job.volumetric.note %}
+<div class="fx-note mt-4">
+  <strong>Configuration context.</strong> {{ job.volumetric.note }}
+</div>
+{% endif %}
+
 {% if evidence %}
 <h2 class="h5 mt-4 mb-2">Where these indicators were observed</h2>
 <p class="text-body-secondary small">

@@ -248,6 +248,11 @@ def _memory(app, job, path):
     sev, note = severity.for_memory(elevated, standout, prob, reliable,
                                     baselined=baseline.loaded())
 
+    # Configuration counts, reported as context only. Computed after severity and
+    # never passed to it: an elevated service count means software was installed.
+    volumetric, volumetric_note = baseline.volumetric_context(vec, names, elevated)
+    job.volumetric = {"raised": volumetric, "note": volumetric_note}
+
     result = Result(job=job, probability=prob, threshold=model.threshold(),
                     malicious=bool(malicious), severity=sev, severity_note=note)
     db.session.add(result)

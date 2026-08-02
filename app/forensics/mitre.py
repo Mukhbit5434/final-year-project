@@ -31,11 +31,15 @@ TAGS = [
      "features": ["psxview.not_in_pslist", "psxview.not_in_eprocess_pool",
                   "psxview.not_in_ethread_pool", "psxview.not_in_csrss_handles",
                   "ldrmodules.not_in_mem"]},
-    {"tag": "Persistence - Services", "id": "T1543.003",
-     "name": "Create or Modify System Process: Windows Service",
-     "confidence": HIGH, "pipeline": "memory",
-     "features": ["svcscan.nservices", "svcscan.kernel_drivers", "svcscan.nactive",
-                  "svcscan.shared_process_services"]},
+    # There is deliberately NO "Persistence - Services" tag on svcscan counts.
+    # It was removed 2026-08-02 and must not be re-added. A MITRE tag asserts a
+    # technique was *observed*; "more services than the baseline" is evidence of
+    # installed software, not of service-based persistence. Firing it would put a
+    # technique claim on ordinary configuration difference - the same
+    # false-positive shape already fixed for the unsigned-binary tag and the
+    # clean-capture-scored-Critical severity bug. Service counts are reported as
+    # volumetric context (baseline.volumetric_context), which cannot assert a
+    # technique and cannot touch severity.
     {"tag": "Kernel Callbacks / Driver Persistence", "id": "T1543.003",
      "name": "Create or Modify System Process: Windows Service",
      "confidence": MODERATE, "pipeline": "memory",
