@@ -224,6 +224,35 @@ every threshold. The malicious capture must inject *many, large* regions and be 
 seconds after churning processes. Getting `malfind` and `psxview` both elevated yields two
 distinct high-risk techniques → High, and the ≥2-elevated bump takes it to Critical.
 
+**What malfind actually counts, read from the installed source (2026-08-02).** A VAD is
+reported when it is (a) `EXECUTE`+`WRITE`, or a dirty `EXECUTE`-only page; **and** (b)
+private memory tagged `VadS`, or non-private that is not `PAGE_EXECUTE_WRITECOPY`; **and**
+(c) not entirely paged-out or zero. Consequences for the capture:
+
+- **A self-allocating `VirtualAlloc(PAGE_EXECUTE_READWRITE)` loop DOES register.** malfind
+  does not require cross-process injection — it walks every process's VAD tree and reports
+  any process holding qualifying regions. A single process that allocates its own RWX VADs
+  counts, and `uniqueInjections = len(malfind) / distinct injected PIDs`, so **many regions
+  in one process drives `uniqueInjections` hardest**. That is the cheapest indicator to
+  trip: >24 needs ~25 qualifying regions in one PID.
+- **The regions must be non-zero.** Allocate then **write executable-looking bytes into
+  each** (even a memcpy of a few bytes per page) — `is_vad_empty` skips any VAD that is all
+  zeroes or paged out, so a bare `VirtualAlloc` with no write is dropped.
+- **`commitCharge` is the sum of CommitCharge across reported VADs**, needing >4,833. One
+  ~19 MB committed RWX region, or many smaller committed ones, reaches it — but commit only
+  counts once the pages are actually touched.
+- **Cross-process injection is not needed for the count, but it is the honest artifact.** A
+  self-RWX loop trips the numbers; `CreateRemoteThread`/`VirtualAllocEx` into a real target
+  (e.g. `notepad.exe`) produces the same malfind hit *plus* a genuine remote-injection
+  story and shows the target PID in the per-process evidence. Prefer it for the
+  demonstration even though the self-loop would satisfy the threshold.
+
+**Concrete recipe:** ~30 RWX allocations of ~64 KB each (writing a stub into every one)
+into one or two target processes gives `ninjections ≈ 30` (short of 48 on its own but
+contributing), `uniqueInjections ≈ 15–30` (**past 24**), and if the allocations are large
+enough, `commitCharge` past 4,833. Combined with 15–20 spawned-and-killed processes for
+`psxview`, that is two high-risk techniques → **Critical**.
+
 **Two things to state openly in the write-up rather than hide. Both are report material,
 not defects.**
 
