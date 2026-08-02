@@ -117,6 +117,47 @@ def limitations(job):
     return out
 
 
+EVIDENCE_SECTIONS = [
+    ("injected_regions", "Injected executable memory",
+     ("Process", "PID", "Region", "Size", "Protection"),
+     lambda d: (d.get("process") or "?", d.get("pid"),
+                f"{d.get('start') or '?'}–{d.get('end') or '?'}",
+                f"{d['size']:,} B" if d.get("size") else "?",
+                d.get("protection") or "?")),
+    ("hidden_modules", "Modules absent from the PEB loader lists",
+     ("Process", "PID", "Base", "Absent from", "Mapped path"),
+     lambda d: (d.get("process") or "?", d.get("pid"), d.get("base") or "?",
+                ", ".join(d.get("absent_from") or []), d.get("path") or "—")),
+    ("hidden_processes", "Processes visible to some enumeration methods only",
+     ("Name", "PID", "Missing from", "Exit time", ""),
+     lambda d: (d.get("name") or "?", d.get("pid"),
+                ", ".join(d.get("missing_from") or []),
+                d.get("exit_time") or "still running", "")),
+    ("unbacked_callbacks", "Kernel callbacks with no backing module",
+     ("Type", "Callback", "Module", "Symbol", ""),
+     lambda d: (d.get("type") or "?", d.get("callback") or "?",
+                d.get("module") or "?", d.get("symbol") or "—", "")),
+]
+
+
+def evidence_rows(job):
+    """-> [(heading, columns, [row, ...], total, shown)], shared by PDF and UI.
+
+    Same reasoning as limitations(): defined once so the report and the dashboard
+    cannot drift apart.
+    """
+    data = job.evidence or {}
+    totals = data.get("totals", {})
+    out = []
+    for key, heading, columns, render in EVIDENCE_SECTIONS:
+        items = data.get(key) or []
+        if not items:
+            continue
+        out.append((heading, columns, [render(d) for d in items],
+                    totals.get(key, len(items)), len(items)))
+    return out
+
+
 def _styles():
     base = getSampleStyleSheet()
     return {
@@ -221,7 +262,11 @@ def render(job, compress=True):
     # 2. Executive summary
     severity, summary = _summary(job, results)
     flow.append(Paragraph("2. Executive summary", st["h"]))
-    flow.append(Paragraph(f"<b>Overall severity: {severity or 'Low'}</b>", st["p"]))
+    # Never fall back to Low. An absent severity means it could not be computed,
+    # and defaulting to the reassuring end of the scale is the wrong direction to
+    # fail in - it reads as "nothing to worry about" on a report that in fact
+    # scored nothing at all.
+    flow.append(Paragraph(f"<b>Overall severity: {severity or 'not scored'}</b>", st["p"]))
     flow.append(Paragraph(summary, st["p"]))
 
     # 3. Verdict detail
@@ -297,6 +342,35 @@ def render(job, compress=True):
             block.append(t)
         flow.append(KeepTogether(block))
         flow.append(Spacer(1, 6))
+
+    # 5. Per-process locators - the memory counterpart to the disk per-file table.
+    sections = evidence_rows(job) if job.artifact == MEMORY else []
+    if sections:
+        flow.append(Paragraph("5. Where these indicators were observed", st["h"]))
+        flow.append(Paragraph(
+            "Counts alone are not investigable. These are the processes, addresses "
+            "and modules behind the indicators above, so they can be examined "
+            "directly in the capture. Their presence is not by itself suspicious - "
+            "read them against the baseline note in the limitations section.",
+            st["p"]))
+        for heading, columns, rows, total, shown in sections:
+            head = f"{heading} — {total}"
+            if shown < total:
+                head += f", showing the first {shown}"
+            flow.append(Paragraph(head, st["h3"]))
+            data = [[Paragraph(f"<b>{c}</b>", st["small"]) for c in columns]]
+            for row in rows:
+                data.append([Paragraph(str(v), st["small"]) for v in row])
+            t = Table(data, colWidths=(38 * mm, 15 * mm, 44 * mm, 24 * mm, 39 * mm))
+            t.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f0f0")),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#dddddd")),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ]))
+            flow.append(t)
+            flow.append(Spacer(1, 6))
 
     # 6. Scope and limitations - mandatory, always rendered
     flow.append(PageBreak())

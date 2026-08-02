@@ -80,6 +80,7 @@ def job_detail(job_id):
     return render_template("job_detail.html", job=job, results=results,
                            severity_counts=counts, baseline=baseline.info(),
                            severity_rank=lambda s: SEVERITY_ORDER.get(s, 0),
+                           evidence=report.evidence_rows(job),
                            limitations=report.limitations(job))
 
 

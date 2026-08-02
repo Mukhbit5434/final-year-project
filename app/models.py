@@ -84,6 +84,10 @@ class Job(db.Model):
     # {plugin: seconds}. Kept because total runtime varies ~2x between runs on
     # identical input and the cause is not identified - see STATUS.md.
     plugin_seconds = db.Column(db.JSON)
+    # Per-process locators - PIDs, region addresses, module paths - so a memory
+    # report is investigable rather than a set of counts. Same shape of value the
+    # disk pipeline gives per file.
+    evidence = db.Column(db.JSON)
 
     user = db.relationship("User", back_populates="jobs")
     results = db.relationship("Result", back_populates="job",

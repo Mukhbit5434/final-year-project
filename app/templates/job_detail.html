@@ -60,10 +60,12 @@
 {% if results %}
 <div class="fx-hero mb-3">
   <div class="d-flex gap-3">
-    <div class="fx-hero-rule bg-sev-{{ worst or 'Low' }}"></div>
+    <div class="fx-hero-rule bg-sev-{{ worst or 'Medium' }}"></div>
     <div class="flex-grow-1">
       <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
-        <span class="fx-hero-verdict sev-{{ worst or 'Low' }}">{{ worst or 'Unrated' }}</span>
+        {# Never default to Low: an absent severity means it was not computed. #}
+        <span class="fx-hero-verdict sev-{{ worst or 'Medium' }}">
+          {{ worst or 'not scored' }}</span>
         <span class="text-body-secondary">severity</span>
         {% if job.artifact == 'disk' %}
           <span class="ms-auto small text-body-secondary">
@@ -254,6 +256,32 @@
 
 {% elif job.done %}
   <div class="card"><div class="fx-empty">No results recorded for this job.</div></div>
+{% endif %}
+
+{% if evidence %}
+<h2 class="h5 mt-4 mb-2">Where these indicators were observed</h2>
+<p class="text-body-secondary small">
+  Counts alone are not investigable. These are the processes, addresses and modules behind
+  the indicators above. Their presence is not by itself suspicious — read them against the
+  baseline note below.
+</p>
+{% for heading, columns, rows, total, shown in evidence %}
+<div class="card mb-3">
+  <div class="card-header">
+    {{ heading }} — {{ total }}{% if shown < total %}, showing the first {{ shown }}{% endif %}
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm small mb-0">
+      <thead><tr>{% for c in columns %}<th class="ps-3">{{ c }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>{% for v in row %}<td class="ps-3 text-break">{{ v }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
 {% endif %}
 
 <h2 class="h5 mt-4 mb-2">Scope and limitations</h2>

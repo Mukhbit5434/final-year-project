@@ -431,6 +431,110 @@ def assemble(parts, feature_names, unknown_protection=(), torn=0):
     return vec, gaps
 
 
+# Per-category cap on the locators kept. A clean Windows 10 capture produces 23
+# injected regions and 230 loader-list mismatches; an analyst reads the top of the
+# list and pivots, so keeping every row would bloat the job row for no gain.
+EVIDENCE_CAP = 25
+
+
+# Everything below crosses a process boundary by pickle, and volatility hands back
+# renderer objects - BitField, UnreadableValue - not plain ints. They pickle in the
+# worker and blow up on the way out, taking the whole pool with them
+# (BrokenProcessPool). So every field is coerced to a builtin here, without
+# exception. Measured: this is what broke the first evidence run.
+def _int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _hex(value):
+    n = _int(value)
+    return f"{n:#x}" if n is not None else None
+
+
+def _text(value):
+    """Volatility renders unreadable fields as objects, not strings."""
+    if value is None:
+        return None
+    out = str(value).strip()
+    return out or None
+
+
+def evidence(collected):
+    """Per-process locators pulled from rows the nine plugins already returned.
+
+    Counts are a statistic; "svchost.exe PID 1204 holds an RWX region at 0x7ff8…"
+    is something an analyst can act on. Every field here comes from a plugin that
+    has already run, so this costs no extra runtime - only the rows we were
+    throwing away.
+    """
+    out = {}
+
+    injected = []
+    for r in collected.get("malfind", []):
+        start, end = _int(r.get("Start VPN")), _int(r.get("End VPN"))
+        size = end - start + 1 if start is not None and end is not None and end >= start \
+            else None
+        injected.append({
+            "pid": _int(r.get("PID")), "process": _text(r.get("Process")),
+            "start": _hex(start), "end": _hex(end), "size": size,
+            "protection": _text(r.get("Protection")),
+            "commit": _int(r.get("CommitCharge")),
+            "private": _int(r.get("PrivateMemory")) == 1,
+        })
+    # Largest regions first: a 4 KB RWX page is ordinary, a multi-megabyte one is not.
+    injected.sort(key=lambda d: -(d["size"] or 0))
+    out["injected_regions"] = injected[:EVIDENCE_CAP]
+
+    hidden_modules = []
+    for r in collected.get("ldrmodules", []):
+        absent = [name for name, col in (("load", "InLoad"), ("init", "InInit"),
+                                         ("mem", "InMem")) if r.get(col) is False]
+        if not absent:
+            continue
+        hidden_modules.append({
+            "pid": _int(r.get("Pid")), "process": _text(r.get("Process")),
+            "base": _hex(r.get("Base")), "absent_from": absent,
+            "path": _text(r.get("MappedPath")),
+        })
+    # Missing from all three lists is the strong signal; one omission is routine.
+    hidden_modules.sort(key=lambda d: -len(d["absent_from"]))
+    out["hidden_modules"] = hidden_modules[:EVIDENCE_CAP]
+
+    hidden_procs = []
+    for r in collected.get("psxview", []):
+        absent = [name for name in ("pslist", "psscan", "thrdscan", "csrss")
+                  if r.get(name) is False]
+        if not absent:
+            continue
+        hidden_procs.append({
+            "pid": _int(r.get("PID")), "name": _text(r.get("Name")),
+            "missing_from": absent,
+            # A terminated process legitimately survives in pool scans, so an exit
+            # time is usually the innocent explanation for the discrepancy.
+            "exit_time": _text(r.get("Exit Time")),
+        })
+    hidden_procs.sort(key=lambda d: -len(d["missing_from"]))
+    out["hidden_processes"] = hidden_procs[:EVIDENCE_CAP]
+
+    unbacked = [{
+        "type": _text(r.get("Type")), "callback": _hex(r.get("Callback")),
+        "module": _text(r.get("Module")), "symbol": _text(r.get("Symbol")),
+    } for r in collected.get("callbacks", []) if str(r.get("Module")) == "UNKNOWN"]
+    out["unbacked_callbacks"] = unbacked[:EVIDENCE_CAP]
+
+    # Totals of what was *found*, not of what survived the cap - otherwise the
+    # report would quietly understate the capture.
+    out["totals"] = {"injected_regions": len(injected),
+                     "hidden_modules": len(hidden_modules),
+                     "hidden_processes": len(hidden_procs),
+                     "unbacked_callbacks": len(unbacked)}
+    out["capped_at"] = EVIDENCE_CAP
+    return out
+
+
 def extract(dump, feature_names, progress=None):
     from volatility3 import framework
     import volatility3.plugins
@@ -479,6 +583,6 @@ def extract(dump, feature_names, progress=None):
     vec, gaps = assemble(parts, feature_names, unknown, torn)
     counts = {k: len(v) for k, v in collected.items()}
     return {"vec": vec, "gaps": gaps, "plugin_rows": counts, "bits": prepared["bits"],
-            "plugin_seconds": timings,
+            "plugin_seconds": timings, "evidence": evidence(collected),
             "torn_process_rows": torn, "svcscan_raw_rows": raw_services,
             "svcscan_duplicate_ratio": raw_services / max(len(collected["svcscan"]), 1)}
