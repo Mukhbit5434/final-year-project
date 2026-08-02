@@ -4,10 +4,10 @@ Last updated 2026-07-31. `CLAUDE.md` is the spec and the binding rules; this fil
 handoff state. If the two disagree, CLAUDE.md wins on *what to build* and this file wins
 on *what exists*.
 
-## Build state: all ten steps complete, 175 tests passing
+## Build state: all ten steps complete, 220 tests passing
 
 ```
-.venv\Scripts\python -m pytest tests -q      ->  175 passed
+.venv\Scripts\python -m pytest tests -q      ->  220 passed
 ```
 
 | Step | State |
@@ -117,7 +117,7 @@ scripts\ember_holdout.py --tar data\ember_dataset_2018_2.tar.bz2
 reporting. It runs whatever is in `sample/` through the real job pipeline, checks the
 mandatory report strings against the rendered PDF, exercises every route, and confirms
 uploaded artifacts stay unreachable. It carries the last-verified numbers inline so drift
-is visible. Unit tests do not catch what this catches — every one of the six bugs below
+is visible. Unit tests do not catch what this catches — every one of the seven bugs below
 came from it.
 
 Run `run.py`, never `python -m flask run` with a module that builds the app at import —
@@ -329,8 +329,9 @@ x64 reference capture it produces, at no extra runtime:
 - **16 injected regions, every one in `MsMpEng.exe`** — Windows Defender's own scanning
   engine, holding 1–2 MB `PAGE_EXECUTE_READWRITE` private regions. The single best
   illustration of why `malfind` counts are not evidence.
-- **267 modules absent from the PEB lists**, led by `ntdll.dll` in `System` and `smss.exe`
-  missing from all three lists — early-boot processes whose PEB is not yet populated.
+- **267 module rows absent from any of the three PEB lists** (this is the evidence-table
+  union, not the `not_in_load` feature, which is 203), led by `ntdll.dll` in `System` and
+  `smss.exe` missing from all three — early-boot processes whose PEB is not yet populated.
 - **12 processes missing from an enumeration method**, most carrying an exit time
   (`SearchFilterHo` exited 09:04:43, `userinit.exe` 07:20:52) — the terminated-process
   explanation, now demonstrated with timestamps instead of asserted.
@@ -349,9 +350,12 @@ viva.
    malicious memory data we have is CIC-MalMem rows, which are cross-machine and therefore
    read Low. Unit tests drive the function directly, but no real artifact has ever taken it
    to High or Critical. The simulated-malicious capture is the first thing that will.
-2. **Four of seven scripts have no tests** — `ember_holdout`, `predict_vector`,
-   `fetch_symbols`, `scan_image`, `dump_memory_features`. `malmem_holdout` and
-   `verify_pipeline` are covered.
+2. **5 of 10 scripts have no unit tests, by decision** — `ember_holdout`,
+   `predict_vector`, `fetch_symbols`, `scan_image`, `dump_memory_features`. These are
+   demo and operator utilities, not on the request path, so they are intentionally
+   untested rather than overlooked; the effort belongs in the pipeline that ships.
+   `malmem_holdout` and `verify_pipeline` are covered, and `patch_ember`, `check_env`,
+   `setup_env` are environment tooling exercised by `check_env` itself.
 3. **The UI has no visual regression testing.** Route tests assert strings, not layout — a
    CSS mistake would keep every test green.
 4. **Disk progress is indeterminate** — "Vectorising executable N" with no percentage,

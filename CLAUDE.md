@@ -503,16 +503,20 @@ identified.** Measured on the same 2 GB x64 capture, same machine, symbol cache 
 | 2026-07-31, standalone extraction | 401 s | — |
 | 2026-07-31, through the job layer | 409 s | 27 s |
 | 2026-08-01, through the job layer | **202 s** | 14 s |
+| 2026-08-02, through the job layer | 352 s | — |
+| 2026-08-02, through the job layer | 357 s | 25 s |
 
 **Say exactly that — "varies roughly 2× between runs, cause not identified".** Do not
-quote a range: two uncontrolled samples are not a characterised distribution, and a range
-implies a measurement nobody made. Only wall-clock was recorded. Page-cache state,
+quote a range: these are uncontrolled samples, not a characterised distribution, and a
+range implies a measurement nobody made. Only wall-clock was recorded. Page-cache state,
 background CPU and per-plugin cost were never captured; a cold ISF download is the one
 cause ruled out, because it adds ~4 minutes and would dwarf the swing.
 
-`extract()` now records `plugin_seconds` per plugin and the job persists it, so the next
-real run localises this: an even spread points at the machine, one plugin moving points at
-that plugin's I/O. `verify_pipeline.py` prints the five slowest.
+`extract()` now records `plugin_seconds` per plugin and the job persists it. The two
+2026-08-02 runs are the first instrumented ones — `malfind` alone was ~125 s of the ~355 s,
+then `handles` ~80 s — but both are from the slow regime, so the fast ~200 s regime is
+still uninstrumented and the 2× is unattributed. `verify_pipeline.py` prints the five
+slowest; get a fast run's timings before theorising.
 
 **The job layer itself costs about 2%** — 401 s standalone against 409 s end to end, taken
 minutes apart. An earlier draft compared a fast standalone run against a slow job run and
@@ -1030,12 +1034,12 @@ severity is capped at Medium and the note says why.
 occur on healthy Windows systems: `malfind` flags the RWX memory that JIT compilers,
 browsers and .NET allocate legitimately; `ldrmodules` mismatches happen during ordinary
 DLL loading; `psxview` discrepancies are usually terminated processes that psscan still
-finds in freed pool. A clean Windows 10 capture produced 23 injected regions, 230 modules
-absent from loader lists, 9 processes missing from pslist and 267 kernel callbacks — none
-of it malicious. Printed as raw counts an analyst reads that as compromise. Word it
-relative to baseline ("23 injected regions, consistent with a healthy system") and carry a
-standing note that these indicators matter only when substantially elevated or seen in
-combination.
+finds in freed pool. The clean x64 reference capture produced 16 injected regions, 203
+modules absent from the loader list, 3 processes missing from pslist and 224 kernel
+callbacks — none of it malicious. Printed as raw counts an analyst reads that as
+compromise. Word it relative to baseline ("16 injected regions, consistent with a healthy
+system") and carry a standing note that these indicators matter only when substantially
+elevated or seen in combination.
 
 **One baseline capture is not a threshold, and the numbers say so.** Across 5,000 captures
 of the *same* machine in the reference data, `malfind.ninjections` spans p5 2 → p95 16,
@@ -1138,10 +1142,11 @@ The artifact is never needed by the application again — `report.render()` buil
 from stored results and job metadata. Retention is for the analyst, not the code.
 
 **Schema sketch:** `users`, `jobs` (artifact metadata, hash, type, status, timings,
-error), `results` (per-job verdict/confidence/severity; for disk, one row per file),
-`findings` (per-result matched indicators + tags), `audit_log` (user, action,
-timestamp, job). Design `results` around the disk shape first — it is the harder case —
-and let memory use a single row.
+error, plus `stage`/`progress_pct` for live progress and, memory-only, `evidence` and
+`volumetric` JSON — see §17), `results` (per-job verdict/confidence/severity; for disk,
+one row per file), `findings` (per-result matched indicators + tags), `audit_log` (user,
+action, timestamp, job). Design `results` around the disk shape first — it is the harder
+case — and let memory use a single row.
 
 **Operational constraints that bite in practice:**
 - SQLite plus a thread pool running 30-minute jobs produces `database is locked`. Enable
@@ -1417,19 +1422,23 @@ app/
   config.py              Config / TestConfig; BASELINE_FILE, LOAD_MODELS,
                          DISPATCH_JOBS, RECOVER_ORPHANS
   db.py                  SQLAlchemy + the SQLite WAL/busy-timeout pragmas
-  models.py              users, jobs, results, findings, audit_log
+  models.py              users, jobs, results, findings, audit_log; jobs also carries
+                         stage/progress_pct, plugin_seconds, evidence, volumetric
   artifacts.py           streaming upload + hashing, positive-ID type sniffing
-  auth.py routes.py      blueprints; routes also holds export.csv/.json and report.pdf
-  jobs.py                Flask-Executor supervisor + module-level ProcessPoolExecutor
+  auth.py routes.py      blueprints; routes holds export.csv/.json, report.pdf, dashboard
+  jobs.py                Flask-Executor supervisor + module-level ProcessPoolExecutor;
+                         _reporter/_await carry progress across the process boundary
   inference/{disk,memory}.py    two loaders, no shared base class
-  extractors/{disk,memory}.py   pytsk3/EMBER and volatility3
+  extractors/{disk,memory}.py   pytsk3/EMBER and volatility3; memory.evidence() locators
   explain.py             LIME explainers, built once at startup
   forensics/
     meanings.py          feature -> forensic significance; BEHAVIOURAL, observed()
     mitre.py             TAGS, match(features, pipeline, values), DISCLAIMER
     severity.py          for_disk() verdict-led, for_memory() evidence-led
-    baseline.py          clean-system comparison, ELEVATED factor, NOTE
-  report.py              limitations() + render(); REQUIRED_* mandatory strings
+    baseline.py          clean-system comparison, ELEVATED, VOLUMETRIC, NOTE
+  report.py              limitations() + evidence_rows() + render(); REQUIRED_* strings
+  static/app.css         design tokens (--fx-*), severity colour scale, shared with charts
+  templates/             landing (public), dashboard, jobs, job_detail, upload, auth/*
 baselines/clean_win10_x64.json    the reference capture and its ground truth
 scripts/                 setup_env, check_env, patch_ember, scan_image,
                          dump_memory_features, predict_vector, fetch_symbols,

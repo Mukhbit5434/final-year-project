@@ -351,8 +351,11 @@ def render(job, compress=True):
         flow.append(Paragraph(volumetric["note"], st["small"]))
         flow.append(Spacer(1, 6))
 
-    # 5. Per-process locators - the memory counterpart to the disk per-file table.
+    # Section 5 is per-process evidence, but only for a memory job that has any -
+    # so Scope and Appendix renumber accordingly rather than colliding on "5".
     sections = evidence_rows(job) if job.artifact == MEMORY else []
+    scope_no = 6 if sections else 5
+
     if sections:
         flow.append(Paragraph("5. Where these indicators were observed", st["h"]))
         flow.append(Paragraph(
@@ -380,17 +383,16 @@ def render(job, compress=True):
             flow.append(t)
             flow.append(Spacer(1, 6))
 
-    # 6. Scope and limitations - mandatory, always rendered
+    # Scope and limitations - mandatory, always rendered.
     flow.append(PageBreak())
-    flow.append(Paragraph("5. Scope and limitations", st["h"]))
+    flow.append(Paragraph(f"{scope_no}. Scope and limitations", st["h"]))
     for heading, paragraphs in limitations(job):
         flow.append(Paragraph(heading, st["h3"]))
         for text in paragraphs:
             flow.append(Paragraph(text, st["small"]))
             flow.append(Spacer(1, 2))
 
-    # 7. Appendix
-    flow.append(Paragraph("6. Appendix", st["h"]))
+    flow.append(Paragraph(f"{scope_no + 1}. Appendix", st["h"]))
     if job.artifact == MEMORY and job.ood_fields:
         flow.append(Paragraph("Features outside the training range", st["h3"]))
         flow.append(Paragraph(", ".join(job.ood_fields), st["mono"]))

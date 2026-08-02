@@ -178,11 +178,11 @@ scripts\ember_holdout.py --tar ...         labelled held-out EMBER 2018 rows
 reporting — unit tests do not catch what it catches.
 
 **Runtime varies roughly 2× between runs on identical input and the cause is not
-identified.** A 2 GB memory capture has taken both 202 s and 409 s on the same machine
-with the symbol cache warm, and the same disk image has ranged 11–27 s. Only wall-clock
-was ever measured, so this is stated rather than characterised; `Job.plugin_seconds`
-records per-plugin cost on every memory job so the next run can localise it. The job
-layer itself accounts for about 2%.
+identified.** A 2 GB memory capture has taken 202 s, 352 s, 357 s and 409 s across four
+runs on the same machine with the symbol cache warm, and the same disk image has ranged
+11–27 s. Only wall-clock was ever measured, so this is stated rather than characterised;
+`Job.plugin_seconds` records per-plugin cost on every memory job so the next run can
+localise it. The job layer itself accounts for about 2%.
 
 ---
 
