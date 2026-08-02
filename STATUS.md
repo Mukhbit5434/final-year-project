@@ -48,7 +48,16 @@ ISF download is the one thing ruled out (it adds ~4 min and would dwarf this). S
 imply a distribution nobody measured.
 
 `Job.plugin_seconds` now records per-plugin cost on every memory job and
-`verify_pipeline.py` prints the slowest five, so the next real run should localise it.
+`verify_pipeline.py` prints the slowest five. **First two instrumented runs, 2026-08-02:**
+
+| Run | total | malfind | handles | svcscan | psxview | ldrmodules |
+|---|---:|---:|---:|---:|---:|---:|
+| A | 352 s | 128.2 | 77.1 | 38.7 | 37.7 | 32.9 |
+| B | 357 s | 124.1 | 86.7 | 38.3 | 37.1 | 33.6 |
+
+`malfind` alone is ~35% of the job. But **both runs are from the slow regime** — the fast
+~200 s regime has not yet been captured with instrumentation, so the 2× variance is still
+unattributed. Do not theorise from these two; get a fast run's timings first.
 
 **Web** — every route returns against real data; PDFs render for both pipelines; uploaded
 artifacts are unreachable over HTTP.
@@ -187,9 +196,30 @@ malware: process injection (`CreateRemoteThread` / `VirtualAllocEx`, producing r
 `malfind` RWX regions), a running UPX-packed binary, and/or a hidden process.
 **The specific safe simulation method is subject to supervisor approval.**
 
-*Open question for next session:* which artifacts the malicious capture must exhibit for
-the findings → tags → severity path to demonstrate well, and which safe simulation method
-is recommended for each.
+**What it takes to actually move severity — computed 2026-08-02.** `baseline.ELEVATED` is
+3.0, so an indicator only counts when it exceeds 3× the reference machine's clean value.
+Against `clean_win10_x64.json` that is:
+
+| Indicator | Baseline | Must exceed | Reachable by simulation? |
+|---|---:|---:|---|
+| `malfind.uniqueInjections` | 8 | **24** | yes — 25+ regions in one process |
+| `malfind.commitCharge` | 1,611 | **4,833** | yes — ~19 MB of committed private RWX |
+| `malfind.ninjections` | 16 | **48** | yes, but needs ~50 regions total |
+| `psxview.not_in_pslist` | 3 | **9** | yes — spawn/kill 15–20 processes, capture within seconds |
+| `psxview.not_in_eprocess_pool` | 1 | **3** | plausible |
+| `callbacks.nanonymous` | 0 | **3** | only via a loaded driver (test-signing) |
+| `ldrmodules.not_in_init` | 267 | **801** | **no** — a reflective load adds 1–3 |
+| `ldrmodules.not_in_load` / `not_in_mem` | 203 | **609** | **no** |
+
+So a token injection into one process moves **nothing**: a handful of regions is far below
+every threshold. The malicious capture must inject *many, large* regions and be taken
+seconds after churning processes. Getting `malfind` and `psxview` both elevated yields two
+distinct high-risk techniques → High, and the ≥2-elevated bump takes it to Critical.
+
+The `ldrmodules` thresholds are unreachable by any safe simulation, because the reference
+machine already sits at 203–267 legitimately. That is worth stating in the write-up rather
+than hiding: the loader-list indicators are only usable on a machine with a much quieter
+baseline.
 
 ### 2. Empirical test of the OOD gate — planned experiment, not a decision
 
@@ -243,6 +273,24 @@ inferred from.
 **Still open: why identical input varies ~2× run to run.** Not investigated, not
 characterised, and the docs say so rather than implying otherwise. `plugin_seconds` is now
 captured on every memory job; read it on the next real run before theorising.
+
+## Per-process evidence — what the clean capture actually shows
+
+`Job.evidence` records the locators behind each indicator (CLAUDE.md §9.6). On the clean
+x64 reference capture it produces, at no extra runtime:
+
+- **16 injected regions, every one in `MsMpEng.exe`** — Windows Defender's own scanning
+  engine, holding 1–2 MB `PAGE_EXECUTE_READWRITE` private regions. The single best
+  illustration of why `malfind` counts are not evidence.
+- **267 modules absent from the PEB lists**, led by `ntdll.dll` in `System` and `smss.exe`
+  missing from all three lists — early-boot processes whose PEB is not yet populated.
+- **12 processes missing from an enumeration method**, most carrying an exit time
+  (`SearchFilterHo` exited 09:04:43, `userinit.exe` 07:20:52) — the terminated-process
+  explanation, now demonstrated with timestamps instead of asserted.
+- **0 unbacked callbacks.**
+
+This is what makes the baseline argument concrete in the write-up: every indicator the
+model leans on has a mundane explanation visible in the locators.
 
 ## Known rough edges — deliberate, but write them down
 
