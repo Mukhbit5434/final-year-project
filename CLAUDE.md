@@ -1041,13 +1041,25 @@ compromise. Word it relative to baseline ("16 injected regions, consistent with 
 system") and carry a standing note that these indicators matter only when substantially
 elevated or seen in combination.
 
-**One baseline capture is not a threshold, and the numbers say so.** Across 5,000 captures
-of the *same* machine in the reference data, `malfind.ninjections` spans p5 2 → p95 16,
-`malfind.commitCharge` spans 2 → 403, and `psxview.not_in_pslist` spans 0 → 8. Two random
-captures of the same clean machine differ by more than 2× in 25% of pairs for
-`ninjections`, 34% for `commitCharge` and 74% for `not_in_pslist`. A baseline supports
-"right order of magnitude"; it cannot support a numeric cut-off. `callbacks.ncallbacks` is
-the one exception, stable to within 2%.
+**The baseline is seven captures, and the ceiling is their observed max, not a
+multiplier.** Across 5,000 captures of one machine in the reference data
+`malfind.ninjections` spans p5 2 → p95 16 and `psxview.not_in_pslist` 0 → 8; measured
+directly on the seven reference-machine captures, `not_in_pslist` spans **0 → 33** (33 on a
+fresh boot, where psscan still sees terminated boot processes) while services and drivers
+held constant. So `baseline.compare` flags a feature only when it exceeds **the highest
+value seen across the seven clean captures × `MARGIN` (1.2)**, stored as the `max` block in
+the baseline JSON. An earlier median-times-3 rule flagged the fresh-boot capture against
+its own baseline — a clean false positive of the same shape as the clean-scored-Critical
+bug. The margin covers capture noise without inventing a percentile seven samples cannot
+support; `MARGIN` replaced the old `ELEVATED = 3.0` on 2026-08-03.
+
+**Consequence, stated openly:** the fresh-boot peak of 33 puts the `not_in_pslist` ceiling
+near 40, so on this machine a hidden-process indicator is only usable above ~40 — the same
+"unreachable on this baseline" caveat that already applies to `ldrmodules` (ceilings
+500+). The reliable malicious signal here is `malfind`: its clean ceilings are tight
+(`ninjections` ~11, `uniqueInjections` ~5), so ~30 injected regions clears them and yields
+Process Injection → **High**. Do not build a demo that depends on psxview crossing its
+ceiling.
 
 This is not a workaround for a broken model. Evidence-first is how memory forensics is
 actually practised, and it makes the report useful even when the model is not.
@@ -1435,14 +1447,16 @@ app/
     meanings.py          feature -> forensic significance; BEHAVIOURAL, observed()
     mitre.py             TAGS, match(features, pipeline, values), DISCLAIMER
     severity.py          for_disk() verdict-led, for_memory() evidence-led
-    baseline.py          clean-system comparison, ELEVATED, VOLUMETRIC, NOTE
+    baseline.py          clean-capture ceiling (max x MARGIN), VOLUMETRIC, NOTE
   report.py              limitations() + evidence_rows() + render(); REQUIRED_* strings
   static/app.css         design tokens (--fx-*), severity colour scale, shared with charts
   templates/             landing (public), dashboard, jobs, job_detail, upload, auth/*
-baselines/clean_win10_x64.json    the reference capture and its ground truth
+baselines/clean_win10_x64.json    seven-capture reference baseline: median, and the
+                                  observed max per feature that the ceiling uses
 scripts/                 setup_env, check_env, patch_ember, scan_image,
                          dump_memory_features, predict_vector, fetch_symbols,
-                         malmem_holdout, ember_holdout
+                         malmem_holdout, ember_holdout, baseline_extract,
+                         baseline_build
 data/holdout/            labelled held-out rows; the rest of data/ is gitignored
 symbols/                 repo-local ISF cache, gitignored, per-deployment
 ```

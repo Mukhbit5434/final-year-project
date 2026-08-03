@@ -70,10 +70,22 @@ repo.
 | Path | What |
 |---|---|
 | `sample/disk/2020JimmyWilson.E01` | NIST CFReDS evidence image, 295 MB |
-| `sample/memory/win10_memory.raw` | Win10 21H2 x64 19044.1288, 2 GB, Magnet RAM Capture. **The only memory dump this project has.** |
+| `sample/memory/clean_1..7_*.raw` | Seven clean captures of the reference machine, Win10 21H2 x64 build 19044.7548, 2 GB each. The baseline is built from these. |
+| `sample/memory/win10_memory.raw` | Win10 21H2 x64 **19044.1288**, 2 GB. **Retired from baseline duty** (2026-08-03); kept only as the pipeline test artifact the evidence/timing checks were validated against. See the note below on same-vs-different machine. |
 
-`baselines/clean_win10_x64.json` is committed and holds the x64 capture's 55 features,
-its behavioural baseline and its ground-truth numbers.
+`baselines/clean_win10_x64.json` is committed and, since 2026-08-03, holds the **seven-
+capture** reference baseline: per-feature median (`features`/`all_features`) and the
+observed **max** per feature that the severity ceiling uses. `data/baseline_vectors/`
+(gitignored) holds the seven extracted 55-vectors and their summary.
+
+**win10_memory.raw — same or different machine, unresolved.** Its service/driver counts
+(632/321) sit inside the seven captures' range (635-636/324-325), which points at the
+*same* physical machine at an earlier patch level (19044.1288 vs .7548); its behavioural
+profile differs (`malfind.ninjections` 16 vs the new median 6), which could be state or
+drift. The user left this unconfirmed. It does not matter for the action taken — retired
+from baseline either way, kept as a test artifact — but if it is confirmed same-machine it
+could later be added as an eighth capture; do not fold it in until that is confirmed
+*and* the software state matches.
 
 ## Uploaded artifacts are retained indefinitely — decided 2026-07-31
 
@@ -204,25 +216,31 @@ malware: process injection (`CreateRemoteThread` / `VirtualAllocEx`, producing r
 `malfind` RWX regions), a running UPX-packed binary, and/or a hidden process.
 **The specific safe simulation method is subject to supervisor approval.**
 
-**What it takes to actually move severity — computed 2026-08-02.** `baseline.ELEVATED` is
-3.0, so an indicator only counts when it exceeds 3× the reference machine's clean value.
-Against `clean_win10_x64.json` that is:
+**What it takes to move severity — recomputed 2026-08-03 against the seven-capture
+ceilings.** An indicator counts only when it exceeds the highest value seen across the
+seven clean captures × 1.2 (`baseline.MARGIN`). The `max` block in the baseline JSON holds
+those maxima:
 
-| Indicator | Baseline | Must exceed | Reachable by simulation? |
+| Indicator | clean max /7 | ×1.2 ceiling | Reachable by simulation? |
 |---|---:|---:|---|
-| `malfind.uniqueInjections` | 8 | **24** | yes — 25+ regions in one process |
-| `malfind.commitCharge` | 1,611 | **4,833** | yes — ~19 MB of committed private RWX |
-| `malfind.ninjections` | 16 | **48** | yes, but needs ~50 regions total |
-| `psxview.not_in_pslist` | 3 | **9** | yes — spawn/kill 15–20 processes, capture within seconds |
-| `psxview.not_in_eprocess_pool` | 1 | **3** | plausible |
-| `callbacks.nanonymous` | 0 | **3** | only via a loaded driver (test-signing) |
-| `ldrmodules.not_in_init` | 267 | **801** | **no** — a reflective load adds 1–3 |
-| `ldrmodules.not_in_load` / `not_in_mem` | 203 | **609** | **no** |
+| `malfind.ninjections` | 9 | **10.8** | **yes, easily** — 30 regions → ~30 |
+| `malfind.uniqueInjections` | 4 | **5.4** | **yes, easily** — 30 regions in 1–2 procs |
+| `malfind.commitCharge` | 1,846 | **2,215** | yes, with large allocations |
+| `psxview.not_in_pslist` | 33 | **39.6** | **no** — 15–20 spawn/kill stays well under 40 |
+| `psxview.not_in_eprocess_pool` | 3 | **3.6** | marginal |
+| `ldrmodules.not_in_init` | 510 | **612** | **no** — a reflective load adds 1–3 |
+| `ldrmodules.not_in_load` | 432 | **518** | **no** |
 
-So a token injection into one process moves **nothing**: a handful of regions is far below
-every threshold. The malicious capture must inject *many, large* regions and be taken
-seconds after churning processes. Getting `malfind` and `psxview` both elevated yields two
-distinct high-risk techniques → High, and the ≥2-elevated bump takes it to Critical.
+**The demo lands on High, not Critical, and that is the honest result.** ~30 injected
+regions clears the three `malfind` ceilings → Process Injection (T1055) elevated, and the
+≥2-elevated bump makes it **High**. Verified against the live baseline in
+`test_baseline_ceiling.py`. Critical needs a *second* high-risk technique, and on this
+machine none is reachable: the fresh-boot peak of 33 puts `not_in_pslist` at ~40 (so 15–20
+spawn/kill does nothing — pinned by a test), and `ldrmodules` sits at 500+. This is the
+same "unreachable on this baseline" property already recorded for ldrmodules, now also
+true for psxview because of fresh-boot volatility. **Lean the demo on injection; do not
+rely on spawn/kill for a second technique.** To force Critical you would need ~40+
+processes spawned-and-killed immediately before capture.
 
 **What malfind actually counts, read from the installed source (2026-08-02).** A VAD is
 reported when it is (a) `EXECUTE`+`WRITE`, or a dirty `EXECUTE`-only page; **and** (b)
@@ -256,38 +274,46 @@ enough, `commitCharge` past 4,833. Combined with 15–20 spawned-and-killed proc
 **Two things to state openly in the write-up rather than hide. Both are report material,
 not defects.**
 
-1. **`ldrmodules` is unreachable as an elevated indicator on this baseline.** The
-   thresholds are 609–801; a reflective DLL load adds 1–3. The reference machine already
-   sits at 203–267 legitimately, so the loader-list indicators can only ever fire on a
-   machine with a much quieter baseline. They still appear in the findings and in the
-   per-process evidence with their locators — they just cannot drive severity here.
-2. **The short-lived-process scenario is also one of the five clean baseline states.**
-   Spawning and killing processes then capturing within seconds pushes
-   `psxview.not_in_pslist` past its threshold, but a healthy machine closing applications
-   does exactly the same thing. It demonstrates *why psxview alone is not evidence* at
-   least as much as it demonstrates detection, and should be presented that way — which is
-   precisely why severity requires corroboration from a second technique.
+1. **`ldrmodules` is unreachable as an elevated indicator on this baseline.** The ceilings
+   are 518–612 (max/7 × 1.2); a reflective DLL load adds 1–3. The reference machine already
+   sits at 291–389 legitimately, so the loader-list indicators can only fire on a machine
+   with a much quieter baseline. They still appear in the findings and per-process evidence
+   with their locators — they just cannot drive severity here.
+2. **`psxview.not_in_pslist` is also unreachable on this baseline, and for an instructive
+   reason.** The fresh-boot capture legitimately reaches 33 (psscan sees terminated boot
+   processes), so its ceiling is ~40. A realistic hidden-process signal adds a handful —
+   nowhere near 40. Spawning 15–20 processes and capturing within seconds, which was the
+   plan for a second technique, is *exactly what one of the seven clean states already
+   does*, so it cannot separate malicious from clean here. This is why the demo lands on
+   High from injection alone; forcing Critical would need ~40+ spawned/killed processes.
+   `malfind` is the one behavioural family with a tight enough clean ceiling to be a
+   reliable indicator on this machine.
 
-### 2. Empirical test of the OOD gate — planned experiment, not a decision
+### 2. Empirical test of the OOD gate — **measured 2026-08-03**
 
-The x64 clean capture scored p=0.0084 — correctly benign — despite 21 of 55 features being
-out of range. The model extrapolated and landed correctly. **One correct result is not a
-pattern**, but it is worth measuring properly.
+All seven clean captures pushed through the model:
 
-When the five clean captures exist, run all five through the model and record their
-probabilities, then run the malicious capture.
+| capture | p | OOD | verdict |
+|---|---:|---:|---|
+| freshboot | 0.0081 | 23 | benign |
+| idle | 0.0077 | 22 | benign |
+| browser | 0.0077 | 27 | benign |
+| apps | 0.0077 | 25 | benign |
+| afterclose | 0.0077 | 24 | benign |
+| pair_a | 0.0077 | 24 | benign |
+| pair_b | 0.0077 | 23 | benign |
 
-- **All five clean below threshold and the malicious substantially higher** → the model
-  discriminates meaningfully on this reference machine despite being technically out of
-  distribution. That would justify *showing* the verdict with a stated caveat rather than
-  withholding it.
-- **Any clean capture above threshold** → withholding is confirmed correct, and we have a
-  measured false-positive rate on a machine known to be clean.
+**All seven benign, all far below the 0.2337 threshold, OOD 22–27 of 55 — the gate
+behaves consistently and none lands differently.** So the model discriminates cleanly on
+clean captures of the reference machine even while technically out of distribution. This is
+one half of the experiment; it does **not** yet justify unlocking the gate — that needs the
+malicious capture to score substantially higher. The gate stays as it is until then. This
+is not reopening the SMOTE investigation, which is closed.
 
-**The OOD gate stays exactly as it is until this data exists. Do not unlock it on
-optimism.** This is not reopening the distribution investigation — the SMOTE root cause is
-closed and stays closed. It only measures whether the gate is correctly calibrated for the
-reference machine.
+Note the OOD count (22–27) is a property of the model-vs-training-range check and is
+separate from the severity ceiling; both held up. Evidence-led severity scored all seven
+**Low** against the new baseline (below), the outcome that matters most — no clean capture
+reads as a threat.
 
 ### 3. Symbol cache — **done 2026-08-01**
 
@@ -489,10 +515,15 @@ form.
 
 ## The exact next task
 
-**Items 3 and 4 are closed** (2026-07-31). Everything that remains needs the
-reference-machine captures.
+**The seven clean captures are in and processed** (2026-08-03): baseline rebuilt from them
+with the observed-max ceiling, OOD experiment run (item 2), all seven verified Low. The
+scripts are `scripts/baseline_extract.py` (extract once, save vectors) and
+`scripts/baseline_build.py` (median + max → candidate JSON).
 
-**Track B (needs the captures):** once the five clean captures from item 1A arrive, extend
-`baselines/clean_win10_x64.json` into a multi-capture distribution (median and IQR per
-indicator rather than a single value), then run the OOD experiment in item 2 and record
-the five probabilities before touching the gate.
+**What remains needs the malicious captures only:**
+- The simulated-malicious `.raw` — to take severity to High for the first time on real
+  evidence (injection scenario, ~30 regions; see the threshold table above), and to
+  complete the OOD experiment (does the malicious capture score materially above the seven
+  clean ones?).
+- The disk image with simulated malicious elements.
+- Test infrastructure for those is still deliberately unbuilt; specify it with the captures.

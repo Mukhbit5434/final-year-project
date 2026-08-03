@@ -108,10 +108,12 @@ inside the VM at capture time:
 tool that enumerates both.
 
 **Findings are reported against a clean-system baseline, never as bare counts.** A healthy
-Windows 10 machine produces 16 injected memory regions, 203 modules absent from the loader
-list and 3 processes invisible to `pslist`. Printed raw, those read as compromise.
-`baselines/clean_win10_x64.json` is the reference; severity counts only indicators that
-are substantially elevated against it.
+Windows 10 machine produces injected memory regions, modules absent from the loader list
+and processes invisible to `pslist`. Printed raw, those read as compromise.
+`baselines/clean_win10_x64.json` is seven captures of the reference machine across boot,
+idle, browser, apps and after-close states; severity flags a feature only when it exceeds
+the highest value seen across those seven clean captures (times a 1.2 margin), not a
+multiple of a single capture.
 
 ---
 
@@ -207,8 +209,12 @@ Known limits, stated plainly:
   0.0010 to 0.6607. That is a property of EMBER's training distribution, in which the
   malicious class is heavily packed — useful for demonstrating the detection path, but it
   is a false positive and should not be presented as a detection.
-- The clean-system baseline is a single capture. It anchors order of magnitude, not a
-  threshold: across 5,000 captures of one machine, `malfind.commitCharge` spans 200×.
+- The clean-system baseline is seven captures of one reference machine (Windows 10 x64,
+  build 19044.7548). Some indicators vary widely even on a clean machine — `not_in_pslist`
+  spans 0–33 across the seven — so on this machine psxview and ldrmodules cannot be
+  reached by a realistic malicious signal; `malfind` (injection), with tight clean
+  ceilings, is the reliable indicator. Severity uses the observed clean maximum, not a
+  multiplier.
 
 This system performs triage. It narrows an investigation to the artifacts worth a human's
 attention; it does not produce conclusive findings.

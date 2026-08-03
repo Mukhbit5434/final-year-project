@@ -4,14 +4,44 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# A capture has to exceed the baseline by this much before the report calls it
-# elevated. Deliberately loose: measured across 5,000 captures of one machine,
-# malfind.commitCharge spans 200x and two random captures of the same clean
-# system differ by more than 2x a quarter of the time. A tighter factor would
-# manufacture findings out of ordinary variance.
-ELEVATED = 3.0
+# An indicator is "elevated" only when it exceeds the highest value observed
+# across the clean-capture set for this machine, plus a small margin. Measured,
+# not chosen: the seven clean captures put psxview.not_in_pslist at 0-33 (33 from
+# a fresh boot, where psscan still sees terminated boot processes), so a
+# median-times-constant rule flagged the fresh-boot capture against its own
+# baseline - a clean false positive. The observed max is the real ceiling; the
+# margin covers capture-to-capture noise without inventing a percentile seven
+# samples cannot support.
+MARGIN = 1.2
 
 _data = None
+
+
+def _n_captures():
+    caps = (_data or {}).get("captures")
+    return len(caps) if caps else 1
+
+
+def ceiling(feature):
+    """-> the value a capture must exceed to count as elevated, or None.
+
+    The highest value seen across the clean captures times MARGIN. Falls back to
+    a single-capture baseline's own value when no max block is present, so an
+    older baseline still loads.
+    """
+    if not _data:
+        return None
+    mx = _data.get("max")
+    if mx and feature in mx:
+        base = float(mx[feature])
+    else:
+        ref = _data.get("features") or {}
+        af = _data.get("all_features") or {}
+        base = ref.get(feature, af.get(feature))
+        if base is None:
+            return None
+        base = float(base)
+    return max(base, 1.0) * MARGIN
 
 
 def load(path):
@@ -38,21 +68,30 @@ def info():
 
 
 def compare(observed):
-    """-> {feature: True if substantially elevated against the clean baseline}."""
+    """-> {feature: True if it exceeds the clean-capture ceiling for this machine}."""
     if not _data:
         return {}
-    ref = _data.get("features", {})
     out = {}
     for feature, value in observed.items():
-        base = ref.get(feature)
-        if base is None:
+        cap = ceiling(feature)
+        if cap is None:
             continue
-        out[feature] = value > max(base, 1.0) * ELEVATED
+        out[feature] = value > cap
     return out
 
 
+def _observed_max(feature):
+    mx = (_data or {}).get("max") or {}
+    if feature in mx:
+        return float(mx[feature])
+    ref = (_data or {}).get("features") or {}
+    af = (_data or {}).get("all_features") or {}
+    base = ref.get(feature, af.get(feature))
+    return float(base) if base is not None else None
+
+
 def phrase(feature, value):
-    """Wording for a single indicator, relative to baseline.
+    """Wording for a single indicator, relative to the clean-capture range.
 
     These artifacts occur on healthy Windows systems - malfind flags the RWX
     memory JIT compilers and browsers allocate, ldrmodules mismatches happen
@@ -62,14 +101,15 @@ def phrase(feature, value):
     """
     if not _data:
         return f"{value:g} observed; no clean-system baseline is loaded for comparison"
-    base = _data.get("features", {}).get(feature)
-    if base is None:
+    hi = _observed_max(feature)
+    if hi is None:
         return f"{value:g} observed; this indicator is not in the baseline"
-    if value > max(base, 1.0) * ELEVATED:
-        return (f"{value:g} observed against a clean-system baseline of {base:g} - "
-                f"substantially elevated")
-    return (f"{value:g} observed against a clean-system baseline of {base:g} - "
-            f"consistent with a healthy system")
+    n = _n_captures()
+    span = (f"the highest value ({hi:g}) observed across {n} clean captures of this "
+            f"machine")
+    if value > ceiling(feature):
+        return f"{value:g} observed - exceeds {span} - substantially elevated"
+    return f"{value:g} observed - within {span} - consistent with this machine"
 
 
 # How a machine is *configured*, not what it did. These are reported as context
@@ -108,26 +148,27 @@ def volumetric_context(vec, names, behavioural_elevated):
     """
     if not _data:
         return [], None
-    ref = _data.get("all_features", {})
     index = {n: i for i, n in enumerate(names)}
 
     raised = []
     for feature in VOLUMETRIC:
-        if feature not in index or feature not in ref:
+        cap = ceiling(feature)
+        hi = _observed_max(feature)
+        if feature not in index or cap is None or hi is None:
             continue
-        value, base = float(vec[index[feature]]), float(ref[feature])
-        if base <= 0 or value <= base * ELEVATED:
+        value = float(vec[index[feature]])
+        if value <= cap:
             continue
         raised.append({"feature": feature,
                        "label": VOLUMETRIC_LABEL.get(feature, feature),
-                       "value": value, "baseline": base,
-                       "factor": round(value / base, 1)})
+                       "value": value, "baseline": hi,
+                       "factor": round(value / hi, 1) if hi else None})
 
     if not raised:
         return [], None
 
-    named = ", ".join(f"{r['label']} {r['value']:g} against baseline {r['baseline']:g}"
-                      for r in raised)
+    named = ", ".join(f"{r['label']} {r['value']:g} against a clean maximum of "
+                      f"{r['baseline']:g}" for r in raised)
     if any(behavioural_elevated.values()):
         note = (f"Configuration counts are also elevated ({named}). Read alongside the "
                 "behavioural indicators above rather than as an indicator in itself.")
