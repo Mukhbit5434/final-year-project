@@ -1456,7 +1456,7 @@ baselines/clean_win10_x64.json    seven-capture reference baseline: median, and 
 scripts/                 setup_env, check_env, patch_ember, scan_image,
                          dump_memory_features, predict_vector, fetch_symbols,
                          malmem_holdout, ember_holdout, baseline_extract,
-                         baseline_build
+                         baseline_build, sim_injector, sim_spawnkill
 data/holdout/            labelled held-out rows; the rest of data/ is gitignored
 symbols/                 repo-local ISF cache, gitignored, per-deployment
 ```
@@ -1492,6 +1492,14 @@ result; both are cleared when the job settles. Keep the stage text free of file 
 
 3. **`build_context` is stock automagic plus an architecture gate.** No hand-built layer,
    no fallback branch. Non-x64 captures are refused there, before any plugin runs.
+
+4. **The clean baseline is seven captures with an observed-max ceiling.**
+   `baselines/clean_win10_x64.json` carries per-feature `features`/`all_features` (median)
+   and `max`; `baseline.compare` flags a feature only above `max × MARGIN` (1.2), not a
+   multiple of a single capture. Rebuilt via `baseline_extract.py` → `baseline_build.py`.
+   `sim_injector.py`/`sim_spawnkill.py` are the benign capture-time tools that produce a
+   malicious dump (RWX regions + terminated processes in pool); STATUS.md holds the run
+   order and expected Critical result.
 
 **Testing notes that are not guessable:**
 

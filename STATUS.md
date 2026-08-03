@@ -1,13 +1,71 @@
 # STATUS — where the project is right now
 
-Last updated 2026-07-31. `CLAUDE.md` is the spec and the binding rules; this file is the
+Last updated 2026-08-03. `CLAUDE.md` is the spec and the binding rules; this file is the
 handoff state. If the two disagree, CLAUDE.md wins on *what to build* and this file wins
 on *what exists*.
 
-## Build state: all ten steps complete, 220 tests passing
+## SESSION HANDOFF — read this first
+
+All ten build steps are complete, the app runs, **232 tests pass**, and both pipelines are
+validated on real held-out data. The code is frozen; what remains is empirical (one memory
+capture, disk test images) and the write-up. Do **not** change code unless something below
+is genuinely broken.
+
+**State in one screen:**
+
+- **Disk pipeline** — the validated one, LightGBM, 150 features, threshold 0.5010602922493019,
+  ROC-AUC 0.9940 vs the official EMBER baseline 0.9964. True positive proven on a labelled
+  EMBER 2018 held-out row: `data/holdout/ember_test_malicious.npy` → **p=0.999838** (correct),
+  benign counterpart 0.017917 (correct). No PE was parsed — `process_raw_features` from the
+  published feature JSON.
+- **Memory pipeline** — XGBoost, 55 features, threshold 0.2336726188659668. Positioned as a
+  **forensic triage engine, not a detector** (hard rule 22): reports lead with observed
+  Volatility evidence, the model score is secondary and always carries the OOD count. Its
+  own held-out data classifies correctly: `data/holdout/malmem_test_{malicious,benign}.npy`
+  → p=0.997147 / 0.002813, both correct, OOD 0/55 (in-distribution).
+- **Clean baseline (committed, 2026-08-03)** — `baselines/clean_win10_x64.json` is now
+  **seven captures** of the reference machine (Win10 x64 build **19044.7548**) across
+  freshboot/idle/browser/apps/afterclose + a 15–30 s pair. Stored: per-feature median
+  (`features`/`all_features`) and observed **max** per feature. Severity flags a feature
+  only when it exceeds **observed max × MARGIN (1.2)** — the ceiling — *not* the old
+  median×3. All seven clean captures score **Low** (p 0.0077–0.0081, OOD 22–27/55, all
+  benign); nothing false-positives. Extraction validated same-machine: kernel+fs drivers
+  363 vs ground-truth 363–364 (near exact), services +2.9% (enumerates drivers too), procs
+  within ±7% except the volatile freshboot (60 vs 80).
+- **Unreachable-on-this-baseline indicators (state openly in the write-up, not defects):**
+  `psxview.not_in_pslist` ceiling ~40 (freshboot alone hits 33), `ldrmodules.*` ceilings
+  500+. On this machine `malfind` (injection) is the one reliable behavioural indicator.
+- **The malicious capture is the last empirical piece.** Two benign simulation tools are
+  written, smoke-tested and committed: `scripts/sim_injector.py` (30 RWX regions, marker
+  written, nothing executed) and `scripts/sim_spawnkill.py` (100 `cmd /c exit`, handles
+  held so the terminated EPROCESS stay in pool). See the run order and expected results
+  under "The exact next task".
+
+## NEXT SESSION — in order
+
+1. **Receive `malicious_1.raw`** (the user runs both sim tools, captures with both windows
+   open). Run it through the full pipeline (`scripts/verify_pipeline.py` picks up anything
+   in `sample/`, or upload via the web app). **Confirm the expected result:**
+   ninjections 30, uniqueInjections 30, commitCharge ~3840, not_in_pslist ~100 →
+   Process Injection (T1055) + Rootkit (T1014) → **Critical**. This is the first time
+   severity reaches High/Critical on real evidence — the memory pipeline's headline claim.
+   Record the actual numbers here. Also completes the OOD experiment (§2): confirm the
+   malicious capture scores materially different from the seven clean ones.
+2. **Receive the malicious disk image(s).** Run disk detection; confirm it flags the
+   planted malicious PE(s) with path + SHA-256 (hard rule 16). Record results.
+3. **Assemble the demo set** — see "Demo plan" below. Wire the three memory parts and three
+   disk parts into a runnable sequence; the held-out vectors and `predict_vector.py` already
+   cover demos that need no new capture.
+4. **Write-up** — the FYP report, screenshots, and the settled findings (SMOTE saturation,
+   the seven silent bugs, the ceiling design, the unreachable-indicator honesty).
+
+Test infrastructure for the malicious artifacts is deliberately **not** built yet; specify
+it together with the captures so it matches what actually lands.
+
+## Build state: all ten steps complete, 232 tests passing
 
 ```
-.venv\Scripts\python -m pytest tests -q      ->  220 passed
+.venv\Scripts\python -m pytest tests -q      ->  232 passed
 ```
 
 | Step | State |
@@ -30,11 +88,13 @@ on *what exists*.
 content (including two named `.db` and `.regtrans-ms`), 13 unique after SHA-256 dedupe,
 0 flagged, 11–27 s. Correct: the image holds only signed Microsoft and OpenOffice binaries.
 
-**Memory x64** — `win10_memory.raw`, **202–409 s** through the job layer. Ground truth
-measured inside the VM at capture time: processes 67 vs 67 exact, drivers 360 vs 362,
-services+drivers 632 vs 615. Extraction is correct in absolute terms; the training range
-really is far below reality. Clean capture scored **p=0.0084, severity Low** — correctly
-benign despite 21 of 55 features being out of range.
+**Memory x64** — validated on two machines' worth of captures. The original `win10_memory.raw`
+(build 19044.1288, now retired from baseline duty, kept as test artifact): processes 67 vs
+67 exact, drivers 360 vs 362, services+drivers 632 vs 615, **202–409 s** through the job
+layer. The **seven-capture reference set** (build 19044.7548, the live baseline): all seven
+benign p 0.0077–0.0081, OOD 22–27/55, kernel+fs drivers 363 vs ground-truth 363–364,
+services +2.9%, procs within ±7% except the volatile freshboot (60 vs 80). Extraction is
+correct in absolute terms; the training range really is far below reality.
 
 **Runtime — job-layer overhead resolved; run-to-run variance NOT explained.** Standalone
 extraction 401 s against 409 s end to end, minutes apart: **the job layer costs about 2%**,
@@ -540,15 +600,35 @@ form.
 
 ## The exact next task
 
-**The seven clean captures are in and processed** (2026-08-03): baseline rebuilt from them
-with the observed-max ceiling, OOD experiment run (item 2), all seven verified Low. The
-scripts are `scripts/baseline_extract.py` (extract once, save vectors) and
-`scripts/baseline_build.py` (median + max → candidate JSON).
+**See "NEXT SESSION — in order" at the top of this file for the ordered checklist.** The
+seven clean captures are in and processed (2026-08-03): baseline rebuilt from them with the
+observed-max ceiling, OOD experiment run (§2), all seven verified Low. Extraction/build
+scripts: `scripts/baseline_extract.py` (extract once, save vectors to
+`data/baseline_vectors/`, gitignored) and `scripts/baseline_build.py` (median + max →
+candidate JSON, then copy over `baselines/clean_win10_x64.json`).
 
-**What remains needs the malicious captures only:**
-- The simulated-malicious `.raw` — to take severity to High for the first time on real
-  evidence (injection scenario, ~30 regions; see the threshold table above), and to
-  complete the OOD experiment (does the malicious capture score materially above the seven
-  clean ones?).
-- The disk image with simulated malicious elements.
-- Test infrastructure for those is still deliberately unbuilt; specify it with the captures.
+### The malicious capture — run order and expected results (survives to the capture session)
+
+Tools committed and smoke-tested: `scripts/sim_injector.py`, `scripts/sim_spawnkill.py`.
+
+1. Defender: put the scripts' folder in the exclusion list (the injector allocates 30 RWX
+   regions and may trip behaviour monitoring). Capture at least one clean dump under the
+   **same** Defender config so it is comparable to the malicious one.
+2. Terminal 1: `.venv\Scripts\python scripts\sim_injector.py` → note the PID it prints →
+   wait for `READY FOR CAPTURE`, leave open.
+3. Terminal 2: `.venv\Scripts\python scripts\sim_spawnkill.py` → wait for `READY FOR
+   CAPTURE`, leave open. Handles are held, so there is **no timing race** — the terminated
+   processes stay resident while the window is open.
+4. With both windows open, run Magnet RAM Capture → save as `sample/memory/malicious_1.raw`.
+5. After the file is written, press Enter in each terminal to release.
+
+Expected on the capture (clean ceilings in parentheses): `malfind.ninjections` 30 (10.8),
+`malfind.uniqueInjections` 30 (5.4), `malfind.commitCharge` ~3840 (2215),
+`psxview.not_in_pslist` ~100 (39.6) → **T1055 + T1014, two high-risk techniques, ≥2
+elevated → Critical**. The injector shows as `python.exe` at the noted PID holding 30 RWX
+regions in the per-process evidence; ~100 hidden `cmd.exe` appear as processes missing from
+pslist. Injection alone would give High; the spawn-kill provides the second technique for
+Critical.
+
+The disk malicious image and the test infrastructure for both are still deliberately
+unbuilt; specify them with the captures.
