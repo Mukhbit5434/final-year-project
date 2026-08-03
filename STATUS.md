@@ -211,7 +211,26 @@ passed, rows committed. Nothing else is pending from the user except the capture
 Plus **two captures 15 s apart in one state**, to separate capture noise from state noise
 and mirror the dataset's own cadence (ICISSP 2022 §4.2).
 
-**B. Simulated-malicious capture, same machine.** Genuine forensic artifacts without live
+**Finalised malicious-capture recipe (2026-08-03), one capture for Critical.**
+
+- *Injection (→ Process Injection T1055, reliable):* **30 allocations**, each
+  `VirtualAlloc(NULL, 512 KB, MEM_COMMIT|MEM_RESERVE, PAGE_EXECUTE_READWRITE)`, **write a
+  non-zero stub into the first bytes of every one** (mandatory — malfind's `is_vad_empty`
+  skips zero-filled VADs), and **keep the process alive** at capture. Self-allocation into
+  the injector's own process is sufficient; malfind walks every process's VAD tree.
+  Targeting `notepad.exe` is optional flavour only. Produces ninjections 30, uniqueInjections
+  30, commitCharge 3840 — all three clear their ceilings (10.8 / 5.4 / 2215).
+- *Hidden processes (→ Rootkit T1014, the second technique for Critical):* **spawn-and-kill
+  ~100 trivial processes** (`cmd /c exit` in a tight loop), box otherwise quiet, **capture
+  within ~10 s of the last kill**. Need `not_in_pslist` > 39.6, i.e. ≥40 killed EPROCESS
+  still in pool; 100 nets that past 50–60% pool survival, 50 is a coin-flip. Capture in an
+  idle/apps state so the count comes from the kills, not fresh-boot volatility.
+- *Sequence:* start injector (30 RWX + stubs, stays alive) → spawn-kill ~100 → capture
+  immediately. Injection alone → High; injection + spawn-kill → **Critical**.
+- Capture at least one clean dump under the **same Defender configuration** (exclusion
+  folder) used for the malicious one, so the two are comparable.
+
+**Earlier framing, kept for context.** Genuine forensic artifacts without live
 malware: process injection (`CreateRemoteThread` / `VirtualAllocEx`, producing real
 `malfind` RWX regions), a running UPX-packed binary, and/or a hidden process.
 **The specific safe simulation method is subject to supervisor approval.**
