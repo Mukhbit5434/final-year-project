@@ -221,12 +221,18 @@ and mirror the dataset's own cadence (ICISSP 2022 §4.2).
   Targeting `notepad.exe` is optional flavour only. Produces ninjections 30, uniqueInjections
   30, commitCharge 3840 — all three clear their ceilings (10.8 / 5.4 / 2215).
 - *Hidden processes (→ Rootkit T1014, the second technique for Critical):* **spawn-and-kill
-  ~100 trivial processes** (`cmd /c exit` in a tight loop), box otherwise quiet, **capture
-  within ~10 s of the last kill**. Need `not_in_pslist` > 39.6, i.e. ≥40 killed EPROCESS
-  still in pool; 100 nets that past 50–60% pool survival, 50 is a coin-flip. Capture in an
-  idle/apps state so the count comes from the kills, not fresh-boot volatility.
-- *Sequence:* start injector (30 RWX + stubs, stays alive) → spawn-kill ~100 → capture
-  immediately. Injection alone → High; injection + spawn-kill → **Critical**.
+  ~100 trivial processes** (`cmd /c exit`) and **hold their handles open**, which pins the
+  terminated EPROCESS objects in pool — psscan finds them, pslist does not. Need
+  `not_in_pslist` > 39.6; holding handles makes the count ≈ 100 deterministically, with
+  **no timing race** (this improves on the earlier "capture within 10 s" — the artifacts
+  stay resident as long as the tool window is open).
+- *The two tools are written and smoke-tested:* `scripts/sim_injector.py` and
+  `scripts/sim_spawnkill.py`. Both are benign — the injector writes a marker string and
+  never executes the RWX region; the spawn-kill only launches `cmd /c exit`. Run each in
+  its own window, leave both open, capture, then press Enter in each to release.
+- *Sequence:* start `sim_injector.py` (holds 30 RWX) → start `sim_spawnkill.py` (holds ~100
+  terminated) → both report "READY FOR CAPTURE" → run Magnet → release. Injection alone →
+  High; injection + spawn-kill → **Critical**.
 - Capture at least one clean dump under the **same Defender configuration** (exclusion
   folder) used for the malicious one, so the two are comparable.
 
