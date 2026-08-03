@@ -195,6 +195,31 @@ came from it.
 Run `run.py`, never `python -m flask run` with a module that builds the app at import —
 see CLAUDE.md §10 on Windows spawn.
 
+### Operational gotchas a fresh session will otherwise hit blind
+
+- **Git has no committer identity configured.** Commits fail with "Author identity unknown"
+  unless you pass it inline. Every commit this project used:
+  `git -c user.name="Muhammad Farooq" -c user.email="muhammadfarooq1034@gmail.com" commit ...`
+- **PowerShell mangles multi-line commit messages** passed with `-m` (it splits on the
+  text). Write the message to a file and use `git commit -F <file>`, or a single-line `-m`.
+- **The baseline is rebuilt in two steps, and the final copy is manual.**
+  `baseline_extract.py` writes the seven 55-vectors to `data/baseline_vectors/` (gitignored,
+  **not** committed — if that folder is empty the vectors must be re-extracted, ~5–15 min
+  each, ~45 min total). `baseline_build.py` writes `data/baseline_candidate.json`; making it
+  live is a deliberate `copy` over `baselines/clean_win10_x64.json`, not automatic.
+- **Memory extraction is slow and variable (~3.5–7 min, sometimes 15).** Background it and
+  wait; do not assume it hung. `nohup cmd &` *inside* an already-backgrounded shell orphans
+  the child when the wrapper returns — run the python command directly under the tool's own
+  backgrounding instead.
+- **To check a capture's numbers without the web app:** `scripts\dump_memory_features.py
+  <dump>` prints all 55 values against training ranges; the per-process evidence lands in
+  `Job.evidence` when run through the job layer (`verify_pipeline.py` or an upload). For a
+  bare vector, `scripts\predict_vector.py memory --npy <file>` (severity is suppressed there
+  by design — a bare vector has no provenance).
+- **`sample/` and `data/` (except `data/holdout/`) are gitignored** — the dumps, the CSV, the
+  EMBER tarball and the baseline vectors are all local-only. The four held-out `.npy`/`.json`
+  in `data/holdout/` and `baselines/clean_win10_x64.json` **are** committed.
+
 ## Seven silent bugs found by running real artifacts
 
 None of these would have been caught by unit tests; all produced plausible numbers and
