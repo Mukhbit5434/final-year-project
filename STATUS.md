@@ -1,6 +1,6 @@
 # STATUS — where the project is right now
 
-Last updated 2026-08-03. `CLAUDE.md` is the spec and the binding rules; this file is the
+Last updated 2026-08-04. `CLAUDE.md` is the spec and the binding rules; this file is the
 handoff state. If the two disagree, CLAUDE.md wins on *what to build* and this file wins
 on *what exists*.
 
@@ -35,32 +35,41 @@ is genuinely broken.
 - **Unreachable-on-this-baseline indicators (state openly in the write-up, not defects):**
   `psxview.not_in_pslist` ceiling ~40 (freshboot alone hits 33), `ldrmodules.*` ceilings
   500+. On this machine `malfind` (injection) is the one reliable behavioural indicator.
-- **The malicious capture is the last empirical piece.** Two benign simulation tools are
-  written, smoke-tested and committed: `scripts/sim_injector.py` (30 RWX regions, marker
-  written, nothing executed) and `scripts/sim_spawnkill.py` (100 `cmd /c exit`, handles
-  held so the terminated EPROCESS stay in pool). See the run order and expected results
-  under "The exact next task".
+- **The malicious capture landed and confirms the headline claim — Critical, measured
+  2026-08-04.** `sample/memory/malicious_1.raw`, captured with `scripts/sim_injector.py`
+  (30 RWX regions) and `scripts/sim_spawnkill.py` (100 held-open `cmd /c exit`) both
+  running. All four target indicators cleared their ceilings; severity reached **Critical**
+  via T1055 (Process Injection) + T1014 (Rootkit / Hidden Artifacts), confirmed both
+  standalone and through a full app run (job 3, PDF verified). Full numbers, the three
+  prediction deviations (all explained), and a corrected theory of how the spawn-kill
+  simulation actually works are under "The malicious capture — measured 2026-08-04" below.
 
 ## NEXT SESSION — in order
 
-1. **Receive `malicious_1.raw`** (the user runs both sim tools, captures with both windows
-   open). Run it through the full pipeline (`scripts/verify_pipeline.py` picks up anything
-   in `sample/`, or upload via the web app). **Confirm the expected result:**
-   ninjections 30, uniqueInjections 30, commitCharge ~3840, not_in_pslist ~100 →
-   Process Injection (T1055) + Rootkit (T1014) → **Critical**. This is the first time
-   severity reaches High/Critical on real evidence — the memory pipeline's headline claim.
-   Record the actual numbers here. Also completes the OOD experiment (§2): confirm the
-   malicious capture scores materially different from the seven clean ones.
-2. **Receive the malicious disk image(s).** Run disk detection; confirm it flags the
-   planted malicious PE(s) with path + SHA-256 (hard rule 16). Record results.
+1. ~~Receive `malicious_1.raw`~~ **Done 2026-08-04.** Result: **Critical**, confirmed twice
+   (standalone forensics functions + full app run, job 3) and robust to indicator
+   reduction. See "The malicious capture — measured 2026-08-04" below for every number.
+2. **Receive the malicious disk image(s), if still wanted.** The disk pipeline already has
+   two genuine positive demonstrations — the EMBER held-out true positive (p=0.999838) and
+   the UPX-packing false-positive demo — so a third capture is optional polish, not a gap.
+   Check with the supervisor whether it is still required before spending capture time on
+   it. If yes: run disk detection, confirm it flags the planted PE(s) with path + SHA-256
+   (hard rule 16), record results.
 3. **Assemble the demo set** — see "Demo plan" below. Wire the three memory parts and three
-   disk parts into a runnable sequence; the held-out vectors and `predict_vector.py` already
-   cover demos that need no new capture.
+   disk parts into a runnable sequence; the held-out vectors, `predict_vector.py`, and now
+   `malicious_1.raw` already cover every demo that needs no further capture.
 4. **Write-up** — the FYP report, screenshots, and the settled findings (SMOTE saturation,
-   the seven silent bugs, the ceiling design, the unreachable-indicator honesty).
+   the eight silent bugs, the ceiling design, the unreachable-indicator honesty, and the
+   psxview mechanism correction below).
 
 Test infrastructure for the malicious artifacts is deliberately **not** built yet; specify
 it together with the captures so it matches what actually lands.
+
+**`verify_pipeline.py` does not scan `sample/`** — it runs two pinned, named artifacts with
+recorded expected results (see the script's own docstring, corrected 2026-08-04). It never
+picked up the seven clean captures or `malicious_1.raw`; those were run through the app
+directly, which is also the more realistic path since it exercises upload, sniffing and the
+job queue rather than a synthetic Job row.
 
 ## Build state: all ten steps complete, 232 tests passing
 
@@ -132,6 +141,7 @@ repo.
 | `sample/disk/2020JimmyWilson.E01` | NIST CFReDS evidence image, 295 MB |
 | `sample/memory/clean_1..7_*.raw` | Seven clean captures of the reference machine, Win10 21H2 x64 build 19044.7548, 2 GB each. The baseline is built from these. |
 | `sample/memory/win10_memory.raw` | Win10 21H2 x64 **19044.1288**, 2 GB. **Retired from baseline duty** (2026-08-03); kept only as the pipeline test artifact the evidence/timing checks were validated against. See the note below on same-vs-different machine. |
+| `sample/memory/malicious_1.raw` | Same reference machine, captured 2026-08-04 with `sim_injector.py` + `sim_spawnkill.py` both running. 2 GB. SHA-256 `b10325d8…d1def6`. Scores **Critical** — see "The malicious capture — measured 2026-08-04". |
 
 `baselines/clean_win10_x64.json` is committed and, since 2026-08-03, holds the **seven-
 capture** reference baseline: per-feature median (`features`/`all_features`) and the
@@ -220,7 +230,7 @@ see CLAUDE.md §10 on Windows spawn.
   EMBER tarball and the baseline vectors are all local-only. The four held-out `.npy`/`.json`
   in `data/holdout/` and `baselines/clean_win10_x64.json` **are** committed.
 
-## Seven silent bugs found by running real artifacts
+## Eight silent bugs found by running real artifacts
 
 None of these would have been caught by unit tests; all produced plausible numbers and
 raised nothing. Kept here because the pattern is the argument for testing on real inputs.
@@ -245,6 +255,16 @@ raised nothing. Kept here because the pattern is the argument for testing on rea
    `verify_pipeline.py`:** nothing else in the suite touches a real dump, so nothing else
    could have caught it. Fixed by coercing every extracted field to a builtin, with a test
    that feeds an object refusing `int()` and asserts a pickle round-trip.
+8. **Wrong theory of the `sim_spawnkill.py` mechanism** — predicted that holding a handle
+   to a terminated process would hide it from `pslist` (driving `psxview.not_in_pslist`).
+   Measured on `malicious_1.raw` (2026-08-04): holding the handle keeps the process
+   *linked in pslist itself* (nproc 182 vs a clean 60–92), and what actually goes missing
+   is thread objects and the CSRSS session entry — `not_in_ethread_pool` (21.8× its
+   ceiling) and `not_in_csrss_handles` (8.1×), not `not_in_pslist` (a weak 1.39×). Outcome
+   unaffected — Rootkit / Hidden Artifacts still elevated, Critical still reached — but
+   the stated mechanism was wrong until a real artifact was run and the numbers read
+   directly rather than assumed from the design intent. See "Silent bug #8" above for the
+   full measurement and the corrected docstring in `sim_spawnkill.py`.
 
 ## Known limitations, all disclosed in the reports
 
@@ -271,15 +291,17 @@ raised nothing. Kept here because the pattern is the argument for testing on rea
 
 ## Outstanding
 
-**Everything that does not need new artifacts is done.** What remains is items 1 and 2,
-both of which wait on captures from the reference machine, plus the write-up. Testing of
-the supplied artifacts happens in **one pass** once they all land — clean `.raw` set,
-simulated-malicious `.raw`, and a disk image with simulated malicious elements. Test
-infrastructure for those is deliberately **not** built yet; it gets specified together
-with the captures.
+**All memory-side empirical work is done.** The clean baseline set and the simulated-
+malicious capture have both landed and been fully validated — see "The malicious capture
+— measured 2026-08-04" above. What remains is the malicious disk image, **optional and
+pending supervisor confirmation** since the disk pipeline already has two genuine
+demonstrations without it, plus the write-up. Test infrastructure for a disk malicious
+image is deliberately **not** built yet; it gets specified together with that capture if
+it is still wanted.
 
 The MalMem CSV landed on 2026-08-01 and `malmem_holdout.py` has been run — all four gates
-passed, rows committed. Nothing else is pending from the user except the captures.
+passed, rows committed. Nothing else is pending from the user except, possibly, the
+disk image.
 
 ### 1. Captures from the reference machine — user supplies
 
@@ -481,11 +503,9 @@ model leans on has a mundane explanation visible in the locators.
 None of these block anything. They are recorded so they are found here rather than in a
 viva.
 
-1. **The memory severity path has never produced a non-Low result on a malicious input.**
-   `severity.for_memory` counts indicators *elevated against the baseline*, and the only
-   malicious memory data we have is CIC-MalMem rows, which are cross-machine and therefore
-   read Low. Unit tests drive the function directly, but no real artifact has ever taken it
-   to High or Critical. The simulated-malicious capture is the first thing that will.
+1. ~~The memory severity path has never produced a non-Low result on a malicious
+   input.~~ **Closed 2026-08-04.** `malicious_1.raw` took it to Critical, confirmed
+   standalone and through the app — see "The malicious capture — measured 2026-08-04".
 2. **5 of 10 scripts have no unit tests, by decision** — `ember_holdout`,
    `predict_vector`, `fetch_symbols`, `scan_image`, `dump_memory_features`. These are
    demo and operator utilities, not on the request path, so they are intentionally
@@ -632,28 +652,159 @@ scripts: `scripts/baseline_extract.py` (extract once, save vectors to
 `data/baseline_vectors/`, gitignored) and `scripts/baseline_build.py` (median + max →
 candidate JSON, then copy over `baselines/clean_win10_x64.json`).
 
-### The malicious capture — run order and expected results (survives to the capture session)
+The malicious memory capture landed and was fully validated 2026-08-04 — see the next
+section. What remains: the malicious disk image, **optional pending supervisor
+confirmation** (the disk pipeline already has a genuine EMBER true positive and the UPX
+false-positive demo, so a third capture is polish, not a gap), the demo assembly, and the
+write-up.
 
-Tools committed and smoke-tested: `scripts/sim_injector.py`, `scripts/sim_spawnkill.py`.
+### The malicious capture — measured 2026-08-04
 
-1. Defender: put the scripts' folder in the exclusion list (the injector allocates 30 RWX
-   regions and may trip behaviour monitoring). Capture at least one clean dump under the
-   **same** Defender config so it is comparable to the malicious one.
-2. Terminal 1: `.venv\Scripts\python scripts\sim_injector.py` → note the PID it prints →
-   wait for `READY FOR CAPTURE`, leave open.
-3. Terminal 2: `.venv\Scripts\python scripts\sim_spawnkill.py` → wait for `READY FOR
-   CAPTURE`, leave open. Handles are held, so there is **no timing race** — the terminated
-   processes stay resident while the window is open.
-4. With both windows open, run Magnet RAM Capture → save as `sample/memory/malicious_1.raw`.
-5. After the file is written, press Enter in each terminal to release.
+Captured with `scripts/sim_injector.py` (30 RWX regions) and `scripts/sim_spawnkill.py`
+(100 held-open `cmd /c exit`) both running simultaneously, both windows showing
+`READY FOR CAPTURE` before the capture started. `sample/memory/malicious_1.raw`, 2 GiB,
+SHA-256 `b10325d8…d1def6` — confirmed twice: once by hashing the file on disk directly,
+once independently by the app's own `artifacts.store()` during upload. Extraction took
+4.2 minutes standalone (27 of 55 features out of training range).
 
-Expected on the capture (clean ceilings in parentheses): `malfind.ninjections` 30 (10.8),
-`malfind.uniqueInjections` 30 (5.4), `malfind.commitCharge` ~3840 (2215),
-`psxview.not_in_pslist` ~100 (39.6) → **T1055 + T1014, two high-risk techniques, ≥2
-elevated → Critical**. The injector shows as `python.exe` at the noted PID holding 30 RWX
-regions in the per-process evidence; ~100 hidden `cmd.exe` appear as processes missing from
-pslist. Injection alone would give High; the spawn-kill provides the second technique for
-Critical.
+**All four target indicators cleared their ceilings, three by more than predicted:**
 
-The disk malicious image and the test infrastructure for both are still deliberately
-unbuilt; specify them with the captures.
+| Indicator | Predicted | Measured | Ceiling | Ratio |
+|---|---:|---:|---:|---:|
+| `malfind.ninjections` | ~30 | **46** | 10.8 | 4.26× |
+| `malfind.uniqueInjections` | ~30 | **9.2** | 5.4 | 1.70× |
+| `malfind.commitCharge` | ~3840 | **5445** | 2215.2 | 2.46× |
+| `psxview.not_in_pslist` | ~100 | **55** | 39.6 | 1.39× |
+
+Per-process malfind breakdown (counted directly from a standalone plugin run, not
+inferred): `python.exe` PID 4400 — **exactly 30 regions, exactly 3840 commit pages** — the
+injector performed to the unit. The remaining 16 regions and 1605 commit pages are
+legitimate: `MsMpEng.exe` (Defender, 5 regions), two `powershell.exe` hosts (5 each),
+`smartscreen.exe` (1). Two deviations explained by that alone:
+
+- **46, not 30** — three other processes also held qualifying RWX memory at capture time;
+  the prediction assumed the injector would be the only one.
+- **9.2, not 30** — `uniqueInjections = len(malfind) / distinct injected PIDs` = 46 / 5.
+  The predicted value of 30 required the injector to be the *sole* PID holding RWX
+  memory; whenever any other process legitimately does too, 30 is unreachable by
+  construction. This is a documentation error in the original prediction, not a defect
+  in the simulation or the extractor.
+- **5445, not 3840** — 3840 injector + 1605 from the same three legitimate processes.
+
+**`psxview.not_in_pslist` landed weakest of the four (1.39×) and for a real reason — see
+silent bug #8 below.** The spawn-kill's intended mechanism was measured to be wrong.
+
+**Severity reached Critical, confirmed twice and robust to indicator reduction.** Run once
+via the shipped forensics functions directly over the extracted vector, and once through a
+full app run (register → login → 2 GB streamed upload → sniff → confirm type → job 3 →
+PDF). Identical result both times:
+
+```
+2 high-risk indicator categories elevated against the clean-system baseline;
+6 indicators elevated against baseline;
+model score withheld from severity: capture is out of distribution
+```
+
+Techniques: **T1055 Process Injection** (`malfind.ninjections`, `commitCharge`,
+`uniqueInjections`, all elevated) and **T1014 Rootkit / Hidden Artifacts**
+(`psxview.not_in_pslist`, `not_in_ethread_pool`, `not_in_csrss_handles`, all elevated).
+Tested against reduced indicator sets rather than assumed:
+
+| Scenario | Severity |
+|---|---|
+| As measured (6 indicators elevated) | **Critical** |
+| Only the originally predicted set (malfind + `not_in_pslist`) | **Critical** |
+| malfind only, as if the spawn-kill had produced nothing | High |
+
+So Critical does not depend on the two indicators the spawn-kill hit unpredictedly (see
+below); "injection alone → High" from the pre-capture analysis is confirmed exactly.
+
+**Per-process evidence — both simulations are individually visible.** Injected regions
+name `python.exe` PID 4400 at its actual addresses (e.g. `0x17610710000`, 512 KB,
+`PAGE_EXECUTE_READWRITE`, 128 commit pages). Hidden processes are all `conhost.exe`,
+missing from `pslist`/`thrdscan`/`csrss`, with exit times `19:53:48–49 UTC` — about
+3.5 minutes before the capture file was written, i.e. legibly the spawn-kill's timeline.
+`unbacked_callbacks: 0`. Volumetric context correctly flagged process count 182 vs clean
+max 92 (2.0×) as configuration context that cannot reach severity on its own.
+
+**Model score: probability 0.4740 (threshold 0.2337), OOD 27/55, 4 of 4 dominant features
+out of range → withheld from severity, as designed.** This completes the OOD experiment
+(§2): the seven clean captures scored 0.0077–0.0081; this one scores 0.4740, roughly
+**60× higher**. The model does discriminate this capture from clean ones, but it stayed
+correctly gated regardless — the gate is not being unlocked, this is not reopening the
+SMOTE investigation, and severity was driven entirely by the evidence-led path.
+
+**End to end through the app, verified rather than assumed.** Real HTTP against `run.py`
+(no test client): 2 GB streamed upload at 535 MB/s; `artifacts.sniff()` correctly returned
+`NEEDS_TYPE` (raw memory carries no magic bytes, exactly as designed); confirmed as
+memory; job 3 completed in 180s. The rendered PDF (17,863 bytes) carries every mandatory
+limitation string plus `Critical`, `T1055`, `T1014`, and the evidence tables. The
+executive summary correctly attributes severity to the behavioural engine rather than the
+model: *"This report leads with what was observed in the capture rather than with a model
+score... The model's own verdict is reported for reference only."* Verdict detail
+separately states the model score was "withheld from severity" — hard rule 22 holds.
+Artifact confirmed unreachable on `/uploads/<name>`, `/static/<name>`, `/uploads/` and bare
+`/<name>` (all 404), stored outside the web root as `a0a8189…1def6.raw`.
+
+**A runtime observation, stated as an observation and not a conclusion.** First
+instrumented run in the fast regime: 180s total, malfind 64.3s / handles 37.6s / psxview
+26.6s / svcscan 15.2s / ldrmodules 14.3s / callbacks 12.8s. Against the two previously
+recorded slow runs (352–357s: malfind ~126s, handles ~82s, svcscan ~38s, ldrmodules ~33s)
+every plugin scales by roughly the same **2.0–2.5×**, not concentrated in one plugin. This
+is **not a controlled comparison** — this capture also has 2.7× more processes than the
+earlier instrumented runs, which independently costs some of that time — so the uniform
+ratio is worth recording, not concluding from. The run-to-run variance is still
+unattributed.
+
+### Silent bug #8 — a wrong theory about `psxview`, corrected by measurement
+
+`sim_spawnkill.py`'s original docstring, and the "finalised malicious-capture recipe" in
+an earlier version of this file, predicted that holding a handle to a terminated process
+keeps its `EPROCESS` resident in pool while it drops out of `pslist` — i.e. that the
+technique would drive `psxview.not_in_pslist`. **Measured on `malicious_1.raw`, that is
+not what happens.**
+
+`pslist.nproc` jumped from a clean 60–92 to **182** — the ~100 zombies are *counted as
+live processes*, not hidden from pslist. Comparing process counts derivable from the
+psxview family against the clean range makes this concrete:
+
+| | Clean range (7 captures) | Malicious |
+|---|---|---:|
+| `pslist.nproc` | 60–92 | **182** |
+| Processes with live thread objects (`nproc + not_in_pslist − not_in_ethread_pool`) | 76–91 | **80** |
+| Processes with CSRSS session entries | 70–82 | **71** |
+
+The machine had a perfectly ordinary number of *real* processes throughout (80, 71) —
+squarely inside the clean range. Holding a handle keeps a terminated `EPROCESS` linked in
+the same list `pslist` walks, so it does not go missing from pslist; what it does lose,
+regardless of who holds a handle to it, is its thread objects and its CSRSS session entry,
+because those are torn down at process exit independent of reference count. That is why
+the two indicators that actually spiked were ones nobody predicted:
+
+- `psxview.not_in_ethread_pool` — 157, **21.8× its ceiling** (no thread objects survive)
+- `psxview.not_in_csrss_handles` — 166, **8.1× its ceiling** (CSRSS entry dropped)
+
+while `not_in_pslist` — the one the whole recipe was built around — only reached **1.39×**
+its ceiling, the weakest of the six elevated indicators. It is genuinely the hardest of
+the three to move on this baseline: a clean fresh boot alone already reaches 33 (psscan
+still finds terminated boot processes), so its ceiling of 39.6 was always going to be
+close to what state noise alone produces.
+
+**This does not change the outcome — Rootkit / Hidden Artifacts still elevated, Critical
+still reached, confirmed robust above — but it changes the *reason*, and the mechanism
+written into `sim_spawnkill.py`, this file, and CLAUDE.md's build history was wrong until
+this measurement.** `scripts/sim_spawnkill.py`'s docstring is corrected as of 2026-08-04
+to describe the mechanism as measured. Filed alongside the other seven silent bugs below,
+because it is the same shape as all of them: a plausible theory about internals that
+looked right, produced a correct-looking outcome for the wrong stated reason, and was only
+caught by running a real artifact through the pipeline and reading the actual numbers
+rather than trusting the prediction.
+
+### Disk — optional, pending confirmation
+
+The disk malicious image and its test infrastructure remain deliberately unbuilt. Check
+with the supervisor whether it is still wanted: the disk pipeline already has a genuine
+EMBER-held-out true positive (§ "Demo plan", p=0.999838) and the UPX-packing
+false-positive demonstration, both real evidence with no malware file ever opened. A
+purpose-built malicious image would be a third, more elaborate demonstration of a path
+that is already proven, not a missing capability.

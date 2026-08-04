@@ -1,21 +1,27 @@
 """Capture-time simulation: leave ~100 terminated processes resident in pool.
 
 This is NOT malware. It launches 100 `cmd /c exit` processes - each starts and
-immediately exits - and then KEEPS THEIR HANDLES OPEN so the terminated EPROCESS
-objects stay resident in kernel pool. A terminated process is unlinked from the
-active process list (pslist) but is still found by pool scanning (psscan), which is
-exactly the psxview discrepancy the pipeline reports as hidden processes.
+immediately exits - and then KEEPS THEIR HANDLES OPEN.
 
-Holding the handles is the important part: it pins the terminated processes in
-memory for as long as this window stays open, so there is NO timing race - you do
-not have to capture within seconds. Just leave it running during the capture.
+**Measured on malicious_1.raw (2026-08-04), the mechanism is not what the first
+draft of this docstring claimed.** Holding a handle to a terminated process keeps
+its EPROCESS *linked in the active process list* - Volatility's pslist walks that
+same list, so it counts these zombies as live processes (nproc jumped from a clean
+80-92 to 182) rather than hiding them from pslist. What actually goes missing is
+thread and CSRSS-session state, which a terminated process sheds regardless of
+whether something still holds its handle:
 
-Expected on the capture:
+    psxview.not_in_ethread_pool    +21.8x ceiling  (no thread objects remain)
+    psxview.not_in_csrss_handles    +8.1x ceiling  (CSRSS session entry dropped)
+    psxview.not_in_pslist           +1.4x ceiling  (weak - a clean fresh boot
+                                                     already reaches 33 here)
 
-    psxview.not_in_pslist  ~100   (clean ceiling 39.6)
-
--> Rootkit / Hidden Artifacts (T1014) elevated. Combined with sim_injector.py in
-the same capture this gives two high-risk techniques -> Critical. See STATUS.md.
+So this simulation reliably elevates Rootkit / Hidden Artifacts (T1014) through
+not_in_ethread_pool and not_in_csrss_handles, not primarily through
+not_in_pslist as originally predicted. Combined with sim_injector.py in the same
+capture this still gives two high-risk techniques -> Critical - confirmed on the
+real capture, standalone and through the app, and robust to dropping either
+psxview signal. See STATUS.md, "silent bug #8", for the full measurement.
 """
 import subprocess
 import sys
@@ -45,7 +51,9 @@ def main():
     alive = sum(1 for p in procs if p.returncode is not None)
     print(f"{alive}/{COUNT} processes spawned and terminated in {elapsed:.1f}s; "
           "their handles are held open by this process.")
-    print(f"\nExpected psxview.not_in_pslist: ~{COUNT} (clean ceiling 39.6).")
+    print(f"\nExpected psxview.not_in_ethread_pool and not_in_csrss_handles to "
+          f"clear their ceilings (~7 / ~20). not_in_pslist rises only weakly - "
+          f"held handles keep these processes linked in pslist itself.")
     print("\n===================  READY FOR CAPTURE  ===================")
     print("Leave this window OPEN and take the RAM capture now. The terminated")
     print("processes stay resident as long as this window is open - no timing race.")

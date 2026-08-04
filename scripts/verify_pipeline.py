@@ -1,13 +1,20 @@
 """End-to-end verification against real artifacts.
 
-Runs whatever is present in sample/ through the full job pipeline - extraction in
+Runs two **pinned, named** artifacts through the full job pipeline - extraction in
 the worker pool, prediction, findings, tags, severity, persistence - then renders
-the reports and exercises every route. This is the check that caught six silent
+the reports and exercises every route. This is the check that caught seven silent
 bugs that unit tests could not; keep it runnable.
 
     scripts\\verify_pipeline.py [--keep]
 
 Uses instance/verify.db so it never disturbs the development database.
+
+**Deliberately not "whatever is in sample/".** SAMPLES below names two specific
+files, and EXPECTED below records what they produced when last verified, so a
+result that drifts is visible rather than silently accepted. Other captures in
+sample/ (the seven clean captures, malicious_1.raw) are exercised through the app
+directly - see STATUS.md for how each one was actually run and what it produced.
+Add an artifact here only once you also have an EXPECTED entry for it.
 """
 import argparse
 import multiprocessing
