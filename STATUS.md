@@ -7,9 +7,19 @@ on *what exists*.
 ## SESSION HANDOFF — read this first
 
 All ten build steps are complete, the app runs, **232 tests pass**, and both pipelines are
-validated on real held-out data. The code is frozen; what remains is empirical (one memory
-capture, disk test images) and the write-up. Do **not** change code unless something below
-is genuinely broken.
+validated on real held-out data **and** on a real malicious memory capture (Critical,
+confirmed — see below). The empirical/build phase is **done**. `docs/FYP_Report_Draft.md`
+is a content draft for the dissertation, following the university's mandated structure.
+
+**Phase change, 2026-08-04 → next session:** the project is moving from "prove the
+pipelines work" into **UI and report changes** — the user wants to revisit the web
+interface and the generated reports, plus other unspecified adjustments not yet detailed
+in this file. No specific change list exists yet; get it from the user at the start of the
+next session rather than assuming from here. Do **not** treat "the code is frozen" as
+still in force — that applied to the empirical-validation phase only, which is now closed.
+Everything below this point (the pipelines, the baseline, the eight bugs, the malicious
+capture) is settled fact and must not be broken by UI/report work; it is not a reason to
+avoid touching `app/templates/`, `app/static/`, or `app/report.py`.
 
 **State in one screen:**
 
@@ -60,7 +70,19 @@ is genuinely broken.
    `malicious_1.raw` already cover every demo that needs no further capture.
 4. **Write-up** — the FYP report, screenshots, and the settled findings (SMOTE saturation,
    the eight silent bugs, the ceiling design, the unreachable-indicator honesty, and the
-   psxview mechanism correction below).
+   psxview mechanism correction below). `docs/FYP_Report_Draft.md` is the in-progress
+   content draft — check it before starting write-up work, it may already cover a section.
+5. **UI and report changes — the new priority, 2026-08-04.** The user wants to revisit the
+   web interface (`app/templates/`, `app/static/`) and the generated PDF/report content
+   (`app/report.py`). **No concrete change list exists in this file** — ask the user what
+   they want changed at the start of the session rather than guessing from context here.
+   Constraints that still apply while making those changes: hard rules 1–24 in CLAUDE.md
+   (thresholds, feature-name sourcing, no scaling, MITRE-ID bans, etc.), the mandatory
+   limitations section (§12, enforced by `report.REQUIRED_*` and tested against the
+   *rendered* PDF), and hard rule 22 (memory reports lead with observations, never the
+   probability). Re-run `pytest tests -q` after any change — 232 must still pass, and the
+   scrambled-column / mandatory-string tests are exactly the ones that catch a UI or report
+   change breaking something structural.
 
 Test infrastructure for the malicious artifacts is deliberately **not** built yet; specify
 it together with the captures so it matches what actually lands.
