@@ -13,10 +13,12 @@ CRASH = b"PAGEDU64" + b"\x00" * 1016
 VMEM = bytes(range(256)) * 8
 
 
-def send(client, data, name="image.dd", artifact="auto"):
-    return client.post("/upload", data={
-        "artifact_file": (io.BytesIO(data), name), "artifact": artifact,
-    }, content_type="multipart/form-data", follow_redirects=False)
+def send(client, data, name="image.dd", artifact="auto", case_ref=None):
+    payload = {"artifact_file": (io.BytesIO(data), name), "artifact": artifact}
+    if case_ref is not None:
+        payload["case_ref"] = case_ref
+    return client.post("/upload", data=payload,
+                       content_type="multipart/form-data", follow_redirects=False)
 
 
 def test_mbr_is_detected_as_disk(client, signed_in):
@@ -77,6 +79,24 @@ def test_stored_name_is_ours_not_the_clients(client, signed_in):
     assert job.stored_name.endswith(".dd")
     # the original is kept for the report, but only ever as a display string
     assert ".." in job.filename
+
+
+def test_case_reference_is_optional_and_uploads_without_one_work_exactly_as_before(
+        client, signed_in):
+    send(client, MBR)
+    job = db.session.query(Job).one()
+    assert job.case_reference is None
+    assert job.artifact == DISK and job.status == PENDING
+
+
+def test_case_reference_is_stored_when_supplied(client, signed_in):
+    send(client, MBR, case_ref="CASE-2026-0142")
+    assert db.session.query(Job).one().case_reference == "CASE-2026-0142"
+
+
+def test_case_reference_is_trimmed_and_blank_becomes_none(client, signed_in):
+    send(client, MBR, case_ref="   ")
+    assert db.session.query(Job).one().case_reference is None
 
 
 def test_disallowed_extension_is_refused(client, signed_in):

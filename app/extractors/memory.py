@@ -462,6 +462,38 @@ def _text(value):
     return out or None
 
 
+def _pslist_index(rows):
+    """{pid: {name, ppid}} from pslist's own rows - the mapping pslist.nppid
+    already reads PPID out of and then discards (from_pslist above keeps only
+    the distinct-PPID count). Torn rows (silent bug: see torn_rows above) are
+    excluded here the same way they are excluded from every average - a
+    structurally impossible PID/PPID is worse than no parent at all.
+    """
+    index = {}
+    for r in rows:
+        if not _sane(r.get("PID"), MAX_PID):
+            continue
+        ppid = r.get("PPID")
+        index[r["PID"]] = {"name": _text(r.get("ImageFileName")),
+                           "ppid": ppid if _sane(ppid, MAX_PID) else None}
+    return index
+
+
+def _parent(pslist_index, pid):
+    """-> {"pid", "name"} for the given child PID's parent, or None.
+
+    Deliberately only ever called for the specific PIDs already named
+    elsewhere in the evidence section (CLAUDE.md scope: not a system-wide
+    tree). The parent's own name can still be unresolved (a torn row, or a
+    process pslist never saw at all) - reported as None rather than guessed.
+    """
+    entry = pslist_index.get(pid) if pid is not None else None
+    if entry is None or entry["ppid"] is None:
+        return None
+    parent = pslist_index.get(entry["ppid"])
+    return {"pid": entry["ppid"], "name": parent["name"] if parent else None}
+
+
 def evidence(collected):
     """Per-process locators pulled from rows the nine plugins already returned.
 
@@ -471,6 +503,7 @@ def evidence(collected):
     throwing away.
     """
     out = {}
+    pslist_index = _pslist_index(collected.get("pslist", []))
 
     injected = []
     for r in collected.get("malfind", []):
@@ -487,6 +520,8 @@ def evidence(collected):
     # Largest regions first: a 4 KB RWX page is ordinary, a multi-megabyte one is not.
     injected.sort(key=lambda d: -(d["size"] or 0))
     out["injected_regions"] = injected[:EVIDENCE_CAP]
+    for d in out["injected_regions"]:
+        d["parent"] = _parent(pslist_index, d["pid"])
 
     hidden_modules = []
     for r in collected.get("ldrmodules", []):
@@ -502,6 +537,8 @@ def evidence(collected):
     # Missing from all three lists is the strong signal; one omission is routine.
     hidden_modules.sort(key=lambda d: -len(d["absent_from"]))
     out["hidden_modules"] = hidden_modules[:EVIDENCE_CAP]
+    for d in out["hidden_modules"]:
+        d["parent"] = _parent(pslist_index, d["pid"])
 
     hidden_procs = []
     for r in collected.get("psxview", []):
@@ -518,6 +555,8 @@ def evidence(collected):
         })
     hidden_procs.sort(key=lambda d: -len(d["missing_from"]))
     out["hidden_processes"] = hidden_procs[:EVIDENCE_CAP]
+    for d in out["hidden_processes"]:
+        d["parent"] = _parent(pslist_index, d["pid"])
 
     unbacked = [{
         "type": _text(r.get("Type")), "callback": _hex(r.get("Callback")),

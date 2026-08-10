@@ -23,7 +23,7 @@
           <strong>Choose a file</strong> or drag it here
         </div>
         <div class="small text-body-secondary mt-1">
-          .dd .raw .img .E01 .EX01 · .mem .dmp .vmem — up to {{ max_gb }} GB
+          .dd .raw .img .E01 .EX01 · .mem .dmp .vmem
         </div>
       </label>
       <div class="form-text mb-3">
@@ -41,33 +41,16 @@
         {% endfor %}
       </fieldset>
 
+      <div class="mb-3">
+        {{ form.case_ref.label(class="form-label") }}
+        {{ form.case_ref(class="form-control", placeholder="e.g. CASE-2026-0142") }}
+        {% for err in form.case_ref.errors %}
+          <div class="form-text text-danger">{{ err }}</div>
+        {% endfor %}
+      </div>
+
       {{ form.submit(class="btn btn-primary") }}
     </form>
-
-    <div class="row g-3 mt-3">
-      <div class="col-md-6">
-        <div class="fx-note fx-note-warn h-100">
-          <strong>This takes minutes, not seconds.</strong>
-          A few minutes for a 2 GB memory capture, and run times vary by about 2×; a disk
-          image depends on how many executables it holds. The job page shows the stage it
-          has reached.
-        </div>
-      </div>
-      <div class="col-md-6">
-        <div class="fx-note h-100">
-          <strong>Memory input is Windows 10 x64 only.</strong>
-          The memory pipeline is calibrated against one controlled reference machine.
-          Captures of any other architecture are refused rather than analysed.
-        </div>
-      </div>
-    </div>
-
-    <div class="fx-note mt-3">
-      <strong>Evidence handling.</strong> Uploaded artifacts are stored outside the web
-      root, are never served back over HTTP, and are never executed — they are read for
-      analysis only. They are retained indefinitely so the recorded SHA-256 stays
-      verifiable against the file it was computed from.
-    </div>
   </div>
 </div>
 {% endblock %}

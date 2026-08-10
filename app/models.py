@@ -52,6 +52,9 @@ class Job(db.Model):
     stored_name = db.Column(db.String(128), unique=True, nullable=False)
     sha256 = db.Column(db.String(64), nullable=False, index=True)
     size_bytes = db.Column(db.BigInteger, nullable=False)
+    # Free text, analyst-supplied at upload, entirely optional. Never required -
+    # a case number an analyst doesn't have yet must never block an upload.
+    case_reference = db.Column(db.String(128))
     # Null only while status is NEEDS_TYPE, i.e. detection was inconclusive and
     # the analyst has not answered yet.
     artifact = db.Column(db.String(8))

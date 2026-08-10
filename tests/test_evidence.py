@@ -6,6 +6,17 @@ from app.models import MEMORY, Job
 
 
 COLLECTED = {
+    # PID/PPID/name chain deliberately covering every PID the other plugins'
+    # rows below reference, plus one (PID 4's own PPID, 0) that pslist never
+    # enumerates at all - the real shape of "System"'s real parent on Windows.
+    "pslist": [
+        {"PID": 4, "PPID": 0, "ImageFileName": "System"},
+        {"PID": 660, "PPID": 4, "ImageFileName": "explorer.exe"},
+        {"PID": 1204, "PPID": 660, "ImageFileName": "svchost.exe"},
+        {"PID": 8, "PPID": 4, "ImageFileName": "fine.exe"},
+        {"PID": 900, "PPID": 4, "ImageFileName": "normal.exe"},
+        {"PID": 4512, "PPID": 900, "ImageFileName": "hidden.exe"},
+    ],
     "malfind": [
         {"PID": 1204, "Process": "svchost.exe", "Start VPN": 0x7ff800000000,
          "End VPN": 0x7ff800000fff, "Protection": "PAGE_EXECUTE_READWRITE",
@@ -67,6 +78,45 @@ def test_only_unbacked_callbacks_are_reported():
     ev = ex.evidence(COLLECTED)
     assert len(ev["unbacked_callbacks"]) == 1
     assert ev["unbacked_callbacks"][0]["callback"] == "0xfffff80012345678"
+
+
+def test_parent_process_is_resolved_for_named_processes():
+    """ImageFileName has never been read anywhere in this codebase before this
+    feature - confirmed against the real installed volatility3.PsList source,
+    not assumed. This is the first test that actually exercises it."""
+    ev = ex.evidence(COLLECTED)
+    by_process = {d["process"]: d["parent"] for d in ev["injected_regions"]}
+    assert by_process["explorer.exe"] == {"pid": 4, "name": "System"}
+    assert by_process["svchost.exe"] == {"pid": 660, "name": "explorer.exe"}
+
+    hidden = {d["pid"]: d["parent"] for d in ev["hidden_processes"]}
+    assert hidden[4512] == {"pid": 900, "name": "normal.exe"}
+
+
+def test_parent_is_unresolved_but_present_for_a_pid_pslist_never_saw():
+    # PID 4's own real PPID is 0 - the System Idle Process, which pslist does
+    # not enumerate as a row of its own. The parent PID is still known; only
+    # its name cannot be filled in, and that must read as unresolved, not as
+    # "no parent at all".
+    mods = {d["pid"]: d["parent"] for d in ex.evidence(COLLECTED)["hidden_modules"]}
+    assert mods[4] == {"pid": 0, "name": None}
+
+
+def test_parent_is_none_with_no_pslist_data_at_all():
+    # The exact shape every fixture in this file used before parent
+    # resolution was added - must degrade to "no parent info", not crash.
+    ev = ex.evidence({"malfind": COLLECTED["malfind"]})
+    assert all(d["parent"] is None for d in ev["injected_regions"])
+
+
+def test_parent_lookup_excludes_torn_pslist_rows():
+    collected = dict(COLLECTED)
+    collected["pslist"] = [
+        {"PID": 660, "PPID": 88804946376740, "ImageFileName": "explorer.exe"},
+    ]
+    explorer = [d for d in ex.evidence(collected)["injected_regions"]
+               if d["process"] == "explorer.exe"][0]
+    assert explorer["parent"] is None, "an insane PPID must not be resolved as real"
 
 
 def test_totals_count_everything_found_not_what_survived_the_cap(monkeypatch):
@@ -173,6 +223,22 @@ def test_locators_reach_the_job_page(client, signed_in, db, analyst):
     body = client.get(f"/jobs/{job.id}").get_data(as_text=True)
     assert "Where these indicators were observed" in body
     assert "svchost.exe" in body and "evil.dll" in body
+
+
+def test_parent_process_column_reaches_the_rendered_pdf(db, analyst):
+    from tests.test_report import text_of
+
+    job = _job(db, analyst, ex.evidence(COLLECTED))
+    body = text_of(report.render(job, compress=False))
+    assert "Parent process" in body
+    assert "explorer.exe, PID 660" in body, "svchost.exe's resolved parent, by name and PID"
+
+
+def test_parent_process_column_reaches_the_job_page(client, signed_in, db, analyst):
+    job = _job(db, analyst, ex.evidence(COLLECTED))
+    body = client.get(f"/jobs/{job.id}").get_data(as_text=True)
+    assert "Parent process" in body
+    assert "explorer.exe, PID 660" in body
 
 
 def test_memory_report_sections_are_numbered_without_a_duplicate(db, analyst):

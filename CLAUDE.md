@@ -1513,3 +1513,190 @@ result; both are cleared when the job settles. Keep the stage text free of file 
 - Rate limiting stays enabled under test; Flask-Limiter's `init_app` returns early when
   disabled, so switching it off would mean never exercising the code. The conftest resets
   the counters between tests instead.
+
+---
+
+## 18. UI/report disclaimer copy — trimmed 2026-08-06, by user decision
+
+Sections 2–17 above describe the system as validated during the empirical phase and are
+still accurate about what the code *does*. This section records a later, deliberate
+product decision about what the UI and the PDF report *say* about it, made once that phase
+was closed. Where this section and an earlier one disagree on what should be displayed,
+this section wins — it is the newer decision. Where they disagree on what the system does
+internally (thresholds, gates, severity mechanics), the earlier sections still win; nothing
+in this section changes any of that.
+
+**The decision.** Several disclaimer/limitation strings that were previously forced onto
+every page and every report — "this is a triage tool, not a detector", the lief-version
+caveat, the MITRE ATT&CK disclaimer paragraph, the "minutes not seconds" runtime notice,
+the memory-architecture-scope advisory, and the evidence-retention advisory — read as
+noise once the pipelines were proven out, and were removed from the pages listed below so
+the tool reads as a working system rather than a wall of caveats. This did **not** change
+any underlying behavior: the architecture gate still refuses non-x64 memory captures, the
+retention policy is still enforced in code, the model thresholds and severity mechanics
+are untouched, and hard rule 22 (memory reports lead with observations, not the
+probability) still holds structurally in both the executive summary and verdict-detail
+ordering. Only the advisory *prose* was removed.
+
+**Removed, and where from:**
+
+- Site-wide footer (`templates/base.html`) — the "Triage tool… Analysis of a raw artifact
+  takes minutes, not seconds" line. It appeared on every page, including Dashboard and
+  Jobs.
+- `templates/upload.html` — three note blocks: the runtime advisory ("This takes minutes,
+  not seconds…"), the memory-architecture advisory ("Memory input is Windows 10 x64
+  only…"), and the evidence-handling/retention advisory. Also the "— up to N GB" suffix
+  on the accepted-extensions line; the extension list itself stays.
+- `templates/job_detail.html` — the "takes minutes, not seconds… run times vary by about
+  2×" sentence in the in-progress card. ("This page updates itself" stays — that's a
+  functional statement about the page, not a disclaimer.)
+- `app/report.py:limitations()` — three whole subsections, which is why they disappeared
+  from both the PDF and the Jobs → job detail page in one place (`_limitations.html`
+  renders whatever `limitations()` returns, by design — see §17 point 1):
+  - **"Nature of these results"** (`TRIAGE_NOTE`, the "this system performs automated
+    triage… does not produce conclusive findings" paragraph) — deleted, constant removed.
+  - **"Feature extraction environment"** (`LIEF_CAVEAT`, disk-only, the lief 1.0.0 vs
+    0.9.0 note) — deleted, constant removed. The version discrepancy itself is still true
+    and still recorded in §6.1 and STATUS.md; it is simply no longer printed on every disk
+    report.
+  - **"MITRE ATT&CK mappings"** (`mitre.DISCLAIMER`, the "inferred from statistical
+    feature indicators… investigative leads" paragraph) — deleted from the report. The
+    `mitre.DISCLAIMER` constant itself still exists in `app/forensics/mitre.py` (still
+    exercised by `tests/test_forensics.py`); `report.py` just no longer includes it.
+
+**What this means for the earlier hard rules.** Hard rule 12 ("never omit the limitations
+section from a report") still holds in the literal sense — `render()` still emits a "Scope
+and limitations" section unconditionally, and it is never empty: for memory jobs it still
+carries extraction gaps, the OOD count + saturation caveat, the baseline note, and the
+§11.1 scope statement; for disk jobs it still carries "Files not examined". What changed is
+*what must be inside it* — the triage note, lief caveat and MITRE disclaimer are no longer
+mandatory contents. §9.2's "every report containing MITRE references must carry this
+[disclaimer] line" instruction and §9.4 item 6's "the `lief` version caveat for disk"
+bullet are superseded by this section. `report.REQUIRED_ALWAYS` and `report.REQUIRED_DISK`
+were trimmed to match (`tests/test_report.py`); `report.REQUIRED_MEMORY` is untouched — see
+below.
+
+**Second pass, 2026-08-07 — two more removed, on explicit instruction:**
+
+- `landing.html`'s "this is a triage tool… not conclusive… investigative leads" note
+  block and its "A limitations section that is never optional" bullet — both deleted.
+  `tests/test_views.py:test_landing_carries_the_triage_framing`, which asserted the
+  phrase "triage tool" appeared on the public landing page, was deleted along with it —
+  the phrase no longer appears anywhere in the app.
+- The per-process evidence intro paragraph — "Counts alone are not investigable… their
+  presence is not by itself suspicious — read them against the baseline note" — trimmed
+  in both `report.py` (PDF, "5. Where these indicators were observed") and
+  `job_detail.html` (same section) down to the purely functional sentence: "These are
+  the processes, addresses and modules behind the indicators above." No test depended on
+  the removed half.
+
+**Third pass, 2026-08-07 — the Appendix's "Environment" subsection removed:**
+
+- `report.render()`'s Appendix (§9.4 item 7) no longer prints the library-version table
+  (xgboost/lightgbm/scikit-learn/numpy/lief/volatility3 versions) that used to sit under
+  an "Environment" heading. The now-unused `_versions()` helper was deleted along with it.
+  The Appendix's "Clean-system baseline" subsection (from `baseline.info()`) and the
+  "Features outside the training range" subsection for memory jobs are untouched — only
+  "Environment" was removed. No test asserted the version table's presence, so nothing
+  else needed updating.
+
+**What remains, pending a separate decision.** Left in place for now: the memory
+model-applicability paragraph (OOD count + `SATURATION_CAVEAT`, still required by hard
+rule 17 and `REQUIRED_MEMORY`), the §11.1 reference-environment scope statement in the
+*report* (`SCOPE_STATEMENT`, still required by hard rule 12/§11.1 and `REQUIRED_MEMORY` —
+only the Upload page's separate advisory blurb about the same architecture restriction was
+removed, not the enforced report text), the baseline note, and the "model verdict is
+secondary for memory captures" note on the job detail page plus the matching sentence in
+the PDF's verdict-detail section (both are how hard rule 22 is made visible, not incidental
+copy). Revisit these only on explicit instruction.
+
+**Fourth pass, 2026-08-10 — four analyst-facing additions, not a removal.** Every prior
+pass in this section trimmed disclaimer prose; this one adds real, requested content on
+both pipelines. Confirmed before and after building: none of it touches hard rule 22, the
+memory evidence-before-verdict ordering, or the content/order/length of "Scope and
+limitations" — every change below sits in chain-of-custody, the per-process evidence
+section, or page furniture, never in the executive summary or verdict-detail sequencing.
+
+1. **Case / investigation reference.** `Job.case_reference` — new column, nullable,
+   migration `169e193a148b_case_reference.py`, chained after `249a2a3baaa5`. Optional
+   free-text field on `UploadForm` (`case_ref`, `Optional()` + `Length(max=128)`); empty or
+   whitespace-only input is stored as `NULL`, never an empty string (`routes.py:upload()`
+   strips it the same way `RegisterForm.email` already did). Existing uploads and uploads
+   with no case reference behave exactly as before — this was verified directly, not
+   assumed: the migration adds the column as `NULLABLE` and every pre-existing job row in
+   the live database confirmed `NULL` after running it. Printed in chain-of-custody, both
+   PDF and job-detail page, only when set (`{% if job.case_reference %}` / `if job.
+   case_reference:` — the row is omitted entirely, not shown blank, when absent).
+
+2. **Page numbers and a running footer (PDF only).** `report._NumberedCanvas`, the
+   standard two-pass ReportLab recipe (`showPage()` snapshots each page's drawing state;
+   `save()` replays every snapshot once the true page count is known, drawing the footer
+   on each before the real save) — plugged in via `SimpleDocTemplate.build(flow,
+   canvasmaker=...)`. Footer carries the artifact's SHA-256 on the left, "Page N of M" on
+   the right, small and grey, on every page. Confirmed the mandatory-string tests
+   (`REQUIRED_ALWAYS`/`REQUIRED_MEMORY`) still find their text with this canvas in place —
+   the footer draws in a genuinely separate pass and does not touch page content.
+
+3. **Process parent-child evidence (memory only), scoped, not a system-wide tree.**
+   `extractors/memory.py:evidence()` now builds a `{pid: {name, ppid}}` lookup
+   (`_pslist_index`) from `collected["pslist"]` — the same rows `from_pslist()` already
+   reads `PPID` out of to compute `pslist.nppid`, previously discarded once that one
+   aggregate was taken. Resolved only for PIDs already named in `injected_regions`,
+   `hidden_modules` and `hidden_processes` (`_parent()`), attached as a `parent` key
+   *inside* the existing per-item dicts — no new top-level structure, no new `Job` column,
+   rides inside the existing `evidence` JSON blob untouched at the schema level. Torn
+   pslist rows (§5.6b) are excluded from the lookup the same way they are excluded from
+   every average — a structurally impossible PPID must not be resolved as a real parent.
+   **`ImageFileName` (the process-name column `pslist` returns) had never been read
+   anywhere in this codebase before this feature** — confirmed against the actually
+   installed `volatility3.plugins.windows.pslist.PsList.run()` source before writing a
+   single line against it, not assumed from memory or documentation, matching this
+   project's own standing methodology (§5.1's psxview mapping was built the same way).
+   Rendering reuses `EVIDENCE_SECTIONS`' existing generic loop in both `report.py` and
+   `job_detail.html` — the web page needed no template change at all, since its evidence
+   table already renders whatever columns/rows `evidence_rows()` produces.
+
+   Two silent formatting traps were caught by the tests written for this feature, not by
+   inspection, and are worth recording alongside CLAUDE.md's existing pattern of
+   real-testing-catches-what-review-doesn't (STATUS.md's eight silent bugs are the same
+   shape of lesson): a `_parent_cell()` first draft rendered `"name (pid)"`, and the PDF's
+   own `verify`-style raw-byte assertion silently failed to find it, because ReportLab
+   escapes literal `(`/`)` inside PDF text streams exactly the way `SCOPE_STATEMENT`
+   already had to avoid (§11.1's note on why that string carries no parentheses). Swapping
+   to an em dash hit a *second*, different escape: ReportLab octal-escapes non-trivial
+   WinAnsi bytes too, so `\xe2\x80\x94` became a literal `\227` in the stream that the
+   test helper's naive regex-based extractor could not decode either. Final format is
+   plain ASCII only — `"name, PID 4400"` — sidestepping both. No other string in this
+   codebase was changed; this was caught and fixed within the one new function.
+
+4. **"Report generated by" line.** `report.render(job, compress=True, generated_by=None)`
+   — new keyword argument, the analyst who requested *this* rendering, deliberately
+   distinct from `job.user` (the job's owner) even though every route that can reach
+   `render()` already enforces `job.user_id == current_user.id` (`_owned()`), so the two
+   are the same person today. Falls back to `job.user.username` when not supplied, for
+   callers with no request context (`scripts/verify_pipeline.py`, the test suite).
+   `routes.py:report()` passes `current_user.username`; `job_detail.html` reads
+   `current_user` directly (Flask-Login exposes it in Jinja without a route change). Sits
+   in chain-of-custody, next to "Uploaded" and the PDF's own generated-timestamp subtitle
+   line — never in the executive summary, and it carries no probability of any kind.
+
+5. **Visual polish.** `reportlab.platypus.HRFlowable` dividers before each major numbered
+   PDF section (2 through 5, and once more before the Appendix) — purely additive
+   `flow.append(...)` calls; no existing paragraph, table, or section was reordered or
+   removed to make room. The per-process evidence table's column width is now computed
+   per section (`160mm / len(columns)`) instead of one hardcoded 5-column tuple, because
+   the new Parent-process column changed different sections' column counts differently
+   (`injected_regions`/`hidden_modules` grew to six, `hidden_processes` to five,
+   `unbacked_callbacks` stayed at four — its two permanently-blank placeholder columns
+   were dropped in the same pass, since they had never carried data). The job-detail page
+   picked up matching `<hr class="my-4">` dividers before the same section headings, for
+   visual parity with the PDF.
+
+Tests: `tests/test_evidence.py` gained a `pslist` block in its shared `COLLECTED` fixture
+(a deliberate PID/PPID/name chain covering every PID the other plugins' fixture rows
+reference, plus PID 4's own real-world PPID of 0, which `pslist` never enumerates as a row
+of its own) and six new tests, including the two that caught the escaping traps above.
+`tests/test_report.py`, `tests/test_upload.py` and `tests/test_views.py` each gained
+coverage for the case-reference and generated-by additions, present and absent. 249 tests
+pass (232 before this pass, +17). `scripts/verify_pipeline.py` passes against both pinned
+real artifacts with this code live.

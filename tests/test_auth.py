@@ -2,9 +2,10 @@ from app.db import db
 from app.models import AuditLog, User
 
 
-def register(client, username="mukhbit", password="a-long-enough-pass"):
+def register(client, username="mukhbit", password="a-long-enough-pass",
+            email="mukhbit@example.com"):
     return client.post("/register", data={
-        "username": username, "email": "", "password": password, "confirm": password,
+        "username": username, "email": email, "password": password, "confirm": password,
     }, follow_redirects=True)
 
 
@@ -22,9 +23,7 @@ def test_register_then_sign_in(client):
 
 
 def test_register_with_an_email_address(client):
-    """Every other registration test sends email="", and Optional() short-circuits
-    the chain on an empty field - so nothing here ever exercised a filled-in
-    address. A real one 500'd on the browser path."""
+    """A real address round-trips correctly - it once 500'd on the browser path."""
     r = client.post("/register", data={
         "username": "withmail", "email": "analyst@example.com",
         "password": "a-long-enough-pass", "confirm": "a-long-enough-pass",
@@ -34,8 +33,27 @@ def test_register_with_an_email_address(client):
     assert user.email == "analyst@example.com"
 
 
+def test_registration_is_rejected_without_an_email(client):
+    # Server-side, not just the browser's own required-field checking - the
+    # form is posted directly, bypassing any client-side validation entirely.
+    r = client.post("/register", data={"username": "noemail", "email": "",
+                                       "password": "a-long-enough-pass",
+                                       "confirm": "a-long-enough-pass"})
+    assert r.status_code == 200
+    assert db.session.query(User).filter_by(username="noemail").first() is None
+    assert b"This field is required" in r.data
+
+
+def test_registration_is_rejected_with_a_whitespace_only_email(client):
+    r = client.post("/register", data={"username": "spacemail", "email": "   ",
+                                       "password": "a-long-enough-pass",
+                                       "confirm": "a-long-enough-pass"})
+    assert r.status_code == 200
+    assert db.session.query(User).filter_by(username="spacemail").first() is None
+
+
 def test_short_password_is_rejected(client):
-    r = client.post("/register", data={"username": "x", "email": "",
+    r = client.post("/register", data={"username": "x", "email": "x@example.com",
                                        "password": "short", "confirm": "short"})
     assert r.status_code == 200
     assert db.session.query(User).filter_by(username="x").first() is None

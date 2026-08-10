@@ -90,7 +90,7 @@ def report(job_id):
     from . import report as renderer
 
     job = _owned(job_id)
-    pdf = renderer.render(job)
+    pdf = renderer.render(job, generated_by=current_user.username)
     log("report_download", job=job, detail=f"{len(pdf)} bytes")
     db.session.commit()
     return current_app.response_class(
@@ -189,6 +189,7 @@ def upload():
     job = Job(user_id=current_user.id,
               filename=fs.filename or name,
               stored_name=name, sha256=sha, size_bytes=size,
+              case_reference=(form.case_ref.data or "").strip() or None,
               artifact=detected, detected_as=why,
               status=PENDING if detected else NEEDS_TYPE)
     db.session.add(job)

@@ -14,9 +14,6 @@
           <div class="mb-3">
             {{ field.label(class="form-label") }}
             {{ field(class="form-control") }}
-            {% if field.name == 'email' %}
-              <div class="form-text">Optional.</div>
-            {% endif %}
             {% for err in field.errors %}
               <div class="form-text text-danger">{{ err }}</div>
             {% endfor %}

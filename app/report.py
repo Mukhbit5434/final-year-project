@@ -6,23 +6,23 @@ from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import (KeepTogether, PageBreak, Paragraph, SimpleDocTemplate,
-                                Spacer, Table, TableStyle)
+from reportlab.pdfgen.canvas import Canvas
+from reportlab.platypus import (HRFlowable, KeepTogether, PageBreak, Paragraph,
+                                SimpleDocTemplate, Spacer, Table, TableStyle)
 
-from .forensics import baseline, mitre
+from .forensics import baseline
 from .models import DISK, MEMORY, SEVERITY_ORDER
 
 # Strings that must survive into every report of the relevant kind. The test suite
 # asserts each one, so removing a limitation from the renderer fails the build
 # rather than quietly shipping a report that overstates its own confidence.
+# Trimmed 2026-08-06 (CLAUDE.md §18): the triage-note, lief-version caveat and MITRE
+# disclaimer paragraphs are no longer emitted, so their required substrings dropped
+# out of these lists along with them.
 REQUIRED_ALWAYS = [
     "Scope and limitations",
-    "narrows the scope of an investigation",
 ]
-REQUIRED_DISK = [
-    "lief",
-    "0.9.0",
-]
+REQUIRED_DISK = []
 REQUIRED_MEMORY = [
     "out of the 55 features",
     "unusually high separability",
@@ -30,12 +30,6 @@ REQUIRED_MEMORY = [
     "controlled reference environment",
     "per-machine clean baseline",
 ]
-
-LIEF_CAVEAT = (
-    "Feature extraction uses lief 1.0.0, which differs from the 0.9.0 release EMBER's "
-    "extractor was validated against. Feature values may differ slightly from the "
-    "official EMBER benchmark. This was accepted during training and is disclosed "
-    "rather than corrected.")
 
 SATURATION_CAVEAT = (
     "The benchmark dataset behind the memory model, CIC-MalMem-2022, shows unusually "
@@ -55,15 +49,10 @@ SCOPE_STATEMENT = (
     "Cross-machine deployment would require a per-machine baseline established in "
     "advance.")
 
-TRIAGE_NOTE = (
-    "This system performs automated triage. It narrows the scope of an investigation to "
-    "the artifacts most worth a human's attention; it does not produce conclusive "
-    "findings. Every flagged item warrants manual verification.")
-
 
 def limitations(job):
     """-> [(heading, [paragraph, ...])], identical for the PDF and the dashboard."""
-    out = [("Nature of these results", [TRIAGE_NOTE])]
+    out = []
 
     skipped = job.skipped or []
     if skipped:
@@ -77,9 +66,6 @@ def limitations(job):
                      "examined'. The following were skipped:"] + lines))
     else:
         out.append(("Files not examined", ["None recorded."]))
-
-    if job.artifact == DISK:
-        out.append(("Feature extraction environment", [LIEF_CAVEAT]))
 
     if job.artifact == MEMORY:
         gaps = job.extraction_gaps or []
@@ -113,30 +99,49 @@ def limitations(job):
         out.append(("Baseline for the observed indicators", [baseline.NOTE]))
         out.append(("Reference environment and scope", [SCOPE_STATEMENT]))
 
-    out.append(("MITRE ATT&CK mappings", [mitre.DISCLAIMER]))
     return out
+
+
+def _parent_cell(d):
+    """'python.exe, PID 4400' / 'unknown, PID 4400' / 'n/a'. Only ever called
+    for the processes already named elsewhere in this evidence section - see
+    extractors/memory.py:_parent(), which is where the actual lookup happens.
+
+    Plain ASCII only, deliberately. ReportLab escapes literal '(' and ')'
+    inside a PDF's text streams (SCOPE_STATEMENT above hit that trap first),
+    and - measured while building this function - it octal-escapes the em
+    dash too (a non-WinAnsi-trivial byte). Both break any check that scans
+    the raw stream for an exact substring (verify_pipeline.py does exactly
+    that). A comma has neither problem.
+    """
+    p = d.get("parent")
+    if not p:
+        return "n/a"
+    name = p.get("name") or "unknown"
+    return f"{name}, PID {p['pid']}" if p.get("pid") is not None else name
 
 
 EVIDENCE_SECTIONS = [
     ("injected_regions", "Injected executable memory",
-     ("Process", "PID", "Region", "Size", "Protection"),
+     ("Process", "PID", "Region", "Size", "Protection", "Parent process"),
      lambda d: (d.get("process") or "?", d.get("pid"),
                 f"{d.get('start') or '?'}–{d.get('end') or '?'}",
                 f"{d['size']:,} B" if d.get("size") else "?",
-                d.get("protection") or "?")),
+                d.get("protection") or "?", _parent_cell(d))),
     ("hidden_modules", "Modules absent from the PEB loader lists",
-     ("Process", "PID", "Base", "Absent from", "Mapped path"),
+     ("Process", "PID", "Base", "Absent from", "Mapped path", "Parent process"),
      lambda d: (d.get("process") or "?", d.get("pid"), d.get("base") or "?",
-                ", ".join(d.get("absent_from") or []), d.get("path") or "—")),
+                ", ".join(d.get("absent_from") or []), d.get("path") or "—",
+                _parent_cell(d))),
     ("hidden_processes", "Processes visible to some enumeration methods only",
-     ("Name", "PID", "Missing from", "Exit time", ""),
+     ("Name", "PID", "Missing from", "Exit time", "Parent process"),
      lambda d: (d.get("name") or "?", d.get("pid"),
                 ", ".join(d.get("missing_from") or []),
-                d.get("exit_time") or "still running", "")),
+                d.get("exit_time") or "still running", _parent_cell(d))),
     ("unbacked_callbacks", "Kernel callbacks with no backing module",
-     ("Type", "Callback", "Module", "Symbol", ""),
+     ("Type", "Callback", "Module", "Symbol"),
      lambda d: (d.get("type") or "?", d.get("callback") or "?",
-                d.get("module") or "?", d.get("symbol") or "—", "")),
+                d.get("module") or "?", d.get("symbol") or "—")),
 ]
 
 
@@ -220,15 +225,24 @@ def _summary(job, results):
     return worst, body
 
 
-def render(job, compress=True):
+def render(job, compress=True, generated_by=None):
     """-> PDF bytes. Rendered on demand from stored results; nothing is cached.
 
     `compress` only controls the page-stream encoding - the content is identical
     either way. The tests turn it off so they can assert that the mandatory
     limitation strings actually reached the page, without pulling in a PDF
     parsing library the project does not otherwise need.
+
+    `generated_by` is the analyst who requested *this* rendering, not
+    necessarily job.user - they are the same analyst today (every route that
+    can reach here already enforces job ownership, CLAUDE.md 10), but the two
+    are conceptually different facts, so callers pass it explicitly rather
+    than this function assuming they're interchangeable. Falls back to the
+    job's own owner for callers with no request/current_user available
+    (scripts/verify_pipeline.py, the test suite).
     """
     st = _styles()
+    generated_by = generated_by or job.user.username
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, title=f"Forensic report - job {job.id}",
                             leftMargin=25 * mm, rightMargin=25 * mm,
@@ -242,24 +256,33 @@ def render(job, compress=True):
     flow.append(Paragraph("Malware Analysis Report", st["title"]))
     flow.append(Paragraph(
         f"{job.artifact or 'unknown'} artifact &middot; job {job.id} &middot; generated "
-        f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", st["sub"]))
+        f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} by {generated_by}",
+        st["sub"]))
 
     flow.append(Paragraph("1. Chain of custody", st["h"]))
-    flow.append(_kv([
+    custody = [
         ("Artifact", job.filename),
         ("SHA-256", f"<font face='Courier' size='7'>{job.sha256}</font>"),
         ("Size", f"{job.size_bytes:,} bytes"),
         ("Type", f"{job.artifact or 'undetermined'} — {job.detected_as or 'n/a'}"),
         ("Analyst", job.user.username),
+    ]
+    if job.case_reference:
+        custody.append(("Case reference", job.case_reference))
+    custody += [
         ("Uploaded", job.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")),
         ("Analysis duration", f"{job.duration / 60:.1f} minutes" if job.duration else "n/a"),
         ("Job ID", job.id),
+        ("Report generated by", generated_by),
         ("Retention", "The uploaded artifact is retained indefinitely on the analysis "
                       f"host as <font face='Courier' size='7'>{job.stored_name}</font>, "
                       "so the SHA-256 above remains verifiable against it."),
-    ], st))
+    ]
+    flow.append(_kv(custody, st))
 
     # 2. Executive summary
+    flow.append(HRFlowable(width="100%", thickness=0.5, spaceBefore=10, spaceAfter=2,
+                           color=colors.HexColor("#dddddd")))
     severity, summary = _summary(job, results)
     flow.append(Paragraph("2. Executive summary", st["h"]))
     # Never fall back to Low. An absent severity means it could not be computed,
@@ -270,6 +293,8 @@ def render(job, compress=True):
     flow.append(Paragraph(summary, st["p"]))
 
     # 3. Verdict detail
+    flow.append(HRFlowable(width="100%", thickness=0.5, spaceBefore=10, spaceAfter=2,
+                           color=colors.HexColor("#dddddd")))
     flow.append(Paragraph("3. Verdict detail", st["h"]))
     if job.artifact == MEMORY and results:
         r = results[0]
@@ -296,6 +321,8 @@ def render(job, compress=True):
         ], st))
 
     # 4/5. Findings, per file for disk
+    flow.append(HRFlowable(width="100%", thickness=0.5, spaceBefore=10, spaceAfter=2,
+                           color=colors.HexColor("#dddddd")))
     flow.append(Paragraph("4. Findings", st["h"]))
     if not results:
         flow.append(Paragraph("No results were recorded for this job.", st["p"]))
@@ -357,12 +384,12 @@ def render(job, compress=True):
     scope_no = 6 if sections else 5
 
     if sections:
+        flow.append(HRFlowable(width="100%", thickness=0.5, spaceBefore=10, spaceAfter=2,
+                               color=colors.HexColor("#dddddd")))
         flow.append(Paragraph("5. Where these indicators were observed", st["h"]))
         flow.append(Paragraph(
-            "Counts alone are not investigable. These are the processes, addresses "
-            "and modules behind the indicators above, so they can be examined "
-            "directly in the capture. Their presence is not by itself suspicious - "
-            "read them against the baseline note in the limitations section.",
+            "These are the processes, addresses and modules behind the indicators "
+            "above, so they can be examined directly in the capture.",
             st["p"]))
         for heading, columns, rows, total, shown in sections:
             head = f"{heading} — {total}"
@@ -372,7 +399,12 @@ def render(job, compress=True):
             data = [[Paragraph(f"<b>{c}</b>", st["small"]) for c in columns]]
             for row in rows:
                 data.append([Paragraph(str(v), st["small"]) for v in row])
-            t = Table(data, colWidths=(38 * mm, 15 * mm, 44 * mm, 24 * mm, 39 * mm))
+            # Evidence sections carry different column counts (Parent process
+            # widened injected_regions/hidden_modules to six; unbacked_callbacks
+            # has no PID/parent at all, so stays at four) - split the usable page
+            # width evenly per section rather than a single hardcoded tuple.
+            col_w = (160 * mm) / len(columns)
+            t = Table(data, colWidths=[col_w] * len(columns))
             t.setStyle(TableStyle([
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f0f0")),
@@ -392,6 +424,8 @@ def render(job, compress=True):
             flow.append(Paragraph(text, st["small"]))
             flow.append(Spacer(1, 2))
 
+    flow.append(HRFlowable(width="100%", thickness=0.5, spaceBefore=10, spaceAfter=2,
+                           color=colors.HexColor("#dddddd")))
     flow.append(Paragraph(f"{scope_no + 1}. Appendix", st["h"]))
     if job.artifact == MEMORY and job.ood_fields:
         flow.append(Paragraph("Features outside the training range", st["h3"]))
@@ -402,20 +436,50 @@ def render(job, compress=True):
         info = baseline.info()
         flow.append(_kv([(k.replace("_", " ").capitalize(), v)
                          for k, v in info.items() if not isinstance(v, dict)], st))
-    flow.append(Paragraph("Environment", st["h3"]))
-    flow.append(_kv(_versions(), st))
 
-    doc.build(flow)
+    doc.build(flow, canvasmaker=_canvas_maker(job.sha256))
     return buf.getvalue()
 
 
-def _versions():
-    import lightgbm
-    import lief
-    import numpy
-    import sklearn
-    import volatility3.framework.constants as vc
-    import xgboost
-    return [("xgboost", xgboost.__version__), ("lightgbm", lightgbm.__version__),
-            ("scikit-learn", sklearn.__version__), ("numpy", numpy.__version__),
-            ("lief", lief.__version__), ("volatility3", vc.PACKAGE_VERSION)]
+class _NumberedCanvas(Canvas):
+    """Adds a running 'Page N of M' plus the artifact's SHA-256 to every page.
+
+    ReportLab only knows the true page count once the whole flowable list has
+    been laid out, so this is the standard two-pass recipe: save every page's
+    drawing state as it goes past, then - once save() is actually called, and
+    the true total is known - replay each saved state and draw the footer on
+    it before it is really written out.
+    """
+
+    def __init__(self, *args, sha256="", **kwargs):
+        Canvas.__init__(self, *args, **kwargs)
+        self._saved_page_states = []
+        self._footer_sha256 = sha256
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        total = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self._draw_footer(total)
+            Canvas.showPage(self)
+        Canvas.save(self)
+
+    def _draw_footer(self, total):
+        self.saveState()
+        self.setFont("Helvetica", 7)
+        self.setFillColor(colors.HexColor("#888888"))
+        width, _height = A4
+        self.drawString(25 * mm, 12 * mm, f"SHA-256 {self._footer_sha256}")
+        self.drawRightString(width - 25 * mm, 12 * mm,
+                             f"Page {self._pageNumber} of {total}")
+        self.restoreState()
+
+
+def _canvas_maker(sha256):
+    def make(*args, **kwargs):
+        return _NumberedCanvas(*args, sha256=sha256, **kwargs)
+    return make
