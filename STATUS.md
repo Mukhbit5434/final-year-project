@@ -11,6 +11,15 @@ validated on real held-out data **and** on a real malicious memory capture (Crit
 confirmed — see below). The empirical/build phase is **done**. `docs/FYP_Report_Draft.md`
 is a content draft for the dissertation, following the university's mandated structure.
 
+**`docs/learning/` exists — 27 files, committed, not mentioned elsewhere in either handoff
+doc until now.** Two beginner-oriented curricula covering the whole application (not the
+ML training side, which is documented separately): `00`–`15` plus `99` walk the codebase
+file by file, in real depth, against the actual current source; `20`–`29` walk it action
+by action instead — the exact function-call sequence for eight real functionalities, plus
+a verified table of every function reused across more than one of them. Not required
+reading to keep building this project, but genuinely the most thorough onboarding material
+that exists for it, and worth knowing it's there before writing a second one from scratch.
+
 **Phase, since 2026-08-04:** the project moved from "prove the pipelines work" into **UI
 and report changes**, as planned. Everything below the next paragraph (the pipelines, the
 baseline, the eight bugs, the malicious capture) is settled fact and has not been touched
@@ -32,7 +41,31 @@ the job's owner, and matching visual dividers on both the PDF and the job-detail
 detail in CLAUDE.md §18's fourth pass. None of it touches hard rule 22, the memory
 evidence-before-verdict ordering, or the "Scope and limitations" section's content or
 length — confirmed before building and re-confirmed by the test suite and
-`verify_pipeline.py` afterward.
+`verify_pipeline.py` afterward. Two real ReportLab text-escaping bugs were caught by the
+new tests while building the parent-process feature (literal parens, then an em dash, both
+silently unmatchable by raw-byte PDF checks) — fixed within `report.py:_parent_cell()`
+before landing; full account in CLAUDE.md §18's fourth pass.
+
+**Merged to `master`, same day.** Built on branch `ui-report-improvements`, merged via a
+clean fast-forward (no divergence, no conflicts) — `master` now sits at the identical
+commit the branch tip did. Re-verified independently on `master` after the merge, not
+assumed from the branch: a live HTTP fetch of `/register` confirmed the served page
+genuinely reflects the merge, and `verify_pipeline.py` was re-run on `master` and printed
+**"all checks passed"** a second time (disk 11s/13 results/0 flagged/60 skipped, memory
+149s/67 processes matching ground truth/21 of 55 OOD — both runs within the already-
+documented "varies ~2x, cause not identified" pattern relative to the pre-merge branch
+run's 25s/391s on the same two artifacts). The feature branch still exists, pointing at
+the same commit as `master`; safe to delete whenever, nothing is only on the branch.
+
+**Proposed alongside this pass but not built — genuinely open, not just forgotten:**
+re-adding a (leaner) library-version table to the report Appendix, needs explicit sign-off
+since it reverses the third §18 pass's removal; a condensed summary table at the very top
+of the report (flagged: must never headline a memory job's probability); a consolidated
+summary table for disk jobs with multiple flagged files, above the existing per-file
+blocks; and generation-timestamp parity on the job-detail web page (deliberately left off
+this pass as a judgement call, not a constraint — the PDF has one, the page doesn't). None
+of the four were declined, just not asked for yet. Full detail, including the reasoning
+recorded at proposal time, is in CLAUDE.md §18's fourth pass, last paragraph.
 
 **State in one screen:**
 
@@ -191,6 +224,43 @@ drift. The user left this unconfirmed. It does not matter for the action taken �
 from baseline either way, kept as a test artifact — but if it is confirmed same-machine it
 could later be added as an eighth capture; do not fold it in until that is confirmed
 *and* the software state matches.
+
+## Repository cleanup pass — 2026-08-07, approved item by item
+
+A full Group A/B/C inventory of every candidate-for-deletion file in the repo was produced
+and reviewed before anything was touched; only what was explicitly approved was removed.
+
+**Deleted, safe, nothing depends on it:** stray cache folders (`__pycache__` throughout,
+`.pytest_cache`), an empty stray `New folder` at the project root, and
+`data/baseline_candidate.json` (confirmed byte-identical to the already-promoted, committed
+`baselines/clean_win10_x64.json` before deleting it).
+
+**Deleted, approved individually:** `data/Obfuscated-MalMem2022.csv` and
+`data/ember_dataset_2018_2.tar.bz2` — the two large source datasets `malmem_holdout.py`
+and `ember_holdout.py` read from. Both publicly re-obtainable if ever needed again; the
+`data/holdout/` rows already derived from them are committed and unaffected, so the demos
+that depend on those rows still work with nothing further to do. Re-running either holdout
+script from scratch would need the source file fetched again first.
+
+**Development-time duplicate uploads deleted, via direct, transaction-verified SQL** (row
+counts checked before commit, rolled back if they hadn't matched exactly): jobs 1, 2, 4, 5,
+6, 7, 8, 9 in `instance/app.db` and their matching files in `uploads/` — 58 `findings`, 50
+`results`, 24 `audit_log`, 8 `jobs` rows, all repeat/dev-testing uploads of artifacts
+already represented elsewhere. **Job 3 (`malicious_1.raw`, SHA-256 `b10325d8…d1def6`, the
+documented Critical-severity evidence) was explicitly excluded and confirmed intact
+afterward** — it is the one upload this project's own write-up cites by hash. `~8.9 GB`
+reclaimed in total across this pass. `instance/verify.db` and its two `verify_*` files in
+`uploads/` were also deleted at the time, but by explicit later decision are **not** kept
+clean going forward — `verify_pipeline.py` recreates them every time it runs regardless, so
+re-deleting them after every run was judged not worth the churn.
+
+**Left alone, on record as a deliberate deferral, not an oversight:**
+`data/baseline_vectors/*.npy` and `symbols/` (small, but `baseline_vectors/` costs ~45
+minutes to regenerate and `symbols/` needs a network round-trip — not worth forcing on a
+future session for the disk space saved), and all eight files in `sample/memory/*.raw`
+(~16 GB, the seven clean captures plus `malicious_1.raw`) — physical captures, not
+regenerable in software, kept until the write-up citing them is actually finished and
+submitted. **Revisit `sample/memory/*.raw` only after the FYP report is done**, not before.
 
 ## Uploaded artifacts are retained indefinitely — decided 2026-07-31
 

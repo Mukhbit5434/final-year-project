@@ -1700,3 +1700,45 @@ of its own) and six new tests, including the two that caught the escaping traps 
 coverage for the case-reference and generated-by additions, present and absent. 249 tests
 pass (232 before this pass, +17). `scripts/verify_pipeline.py` passes against both pinned
 real artifacts with this code live.
+
+**Merged to `master`, 2026-08-10, same day.** Built and tested on a branch
+(`ui-report-improvements`) first, per the project's own working style; the branch was a
+clean linear fast-forward with no divergence from `master`, so the merge is trivial and
+`master` now sits at the identical commit the branch tip did (`a5a44cc` at merge time — a
+squashed commit covering this fourth pass together with the disclaimer trims and the
+mandatory-email change that had accumulated uncommitted since `a55ab96`, described in full
+in that commit's own message since this environment cannot stage individual hunks to split
+them cleanly). Re-verified on `master` specifically, not assumed from the branch: a live
+HTTP fetch of `/register` confirmed the "(optional)" label is genuinely gone from the
+served page, and `verify_pipeline.py` was re-run on `master` and printed "all checks
+passed" a second time — disk 11s/13 results/0 flagged, memory 149s/67 processes/21 of 55
+OOD, both within this project's already-documented "varies roughly 2x run to run, cause
+not identified" pattern (§5.6's runtime table) relative to the pre-merge run's 25s/391s on
+the same two artifacts minutes earlier — one more uncontrolled data point for that still-
+open question, not a new finding.
+
+**What was proposed alongside this pass but explicitly not built — open, not forgotten.**
+The original proposal for this work (before the four-item build instruction landed) named
+several further ideas the user did not approve building this round:
+
+- **Re-adding a library-version table to the report Appendix.** Flagged at proposal time
+  as reversing the third §18 pass's removal (2026-08-07) and needing explicit sign-off
+  first — that sign-off was never given, so the Appendix still has no version table. If
+  ever wanted, keep it lean (the two model types/thresholds plus `lief`/`volatility3`
+  versions) rather than restoring the original six-library table.
+- **A condensed summary table at the very top of the report**, before "1. Chain of
+  custody" — proposed with an explicit caution that it must never show a memory job's
+  probability as a headline figure (would sit above the executive summary that currently
+  carries hard rule 22's ordering). Not built this pass.
+- **A consolidated summary table for disk jobs with multiple flagged files**, at the top
+  of "4. Findings", above the existing per-file detail blocks. Not built this pass — the
+  per-file blocks are unchanged.
+- **Generation-timestamp parity on the job-detail web page.** The PDF has always carried
+  a generation timestamp in its subtitle line; the web page does not, and was deliberately
+  left that way this pass (§18 fourth-pass item 4's own note: the web page re-renders
+  live on every view, so "generated at $now" reads as near-tautological in a way it
+  doesn't for a PDF snapshot) rather than added for symmetry with the PDF. Revisit only if
+  actually wanted — it was a judgement call, not a constraint.
+
+None of the four require touching hard rule 22 or "Scope and limitations" to build, the
+same way this pass's four items didn't — that was true at proposal time and remains true.
