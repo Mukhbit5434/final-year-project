@@ -32,7 +32,6 @@ body { background: var(--fx-bg); }
 
 h1, h2, h3, .h4, .h5, .h6 { letter-spacing: -.01em; }
 
-/* ---- shell ---------------------------------------------------------- */
 
 .fx-nav {
   background: rgba(13, 17, 23, .88);
@@ -54,7 +53,6 @@ h1, h2, h3, .h4, .h5, .h6 { letter-spacing: -.01em; }
   color: var(--fx-dim); font-size: .8rem;
 }
 
-/* ---- panels --------------------------------------------------------- */
 
 .card {
   background: var(--fx-panel);
@@ -86,7 +84,6 @@ h1, h2, h3, .h4, .h5, .h6 { letter-spacing: -.01em; }
 }
 .fx-stat .fx-stat-note { font-size: .76rem; color: var(--fx-dim); }
 
-/* ---- verdict hero --------------------------------------------------- */
 
 .fx-hero {
   border-radius: 12px;
@@ -112,7 +109,6 @@ h1, h2, h3, .h4, .h5, .h6 { letter-spacing: -.01em; }
   background: transparent;
 }
 
-/* ---- status --------------------------------------------------------- */
 
 .fx-status { display: inline-flex; align-items: center; gap: .4rem;
   font-size: .8rem; font-weight: 500; }
@@ -132,7 +128,6 @@ h1, h2, h3, .h4, .h5, .h6 { letter-spacing: -.01em; }
   .status-RUNNING::before { animation: none; }
 }
 
-/* ---- tables --------------------------------------------------------- */
 
 .table { --bs-table-bg: transparent; margin-bottom: 0; }
 .table > thead th {
@@ -148,7 +143,6 @@ th.fx-sort::after { content: "\2195"; opacity: .35; margin-left: .3rem; }
 th.fx-sort[data-dir="asc"]::after  { content: "\2191"; opacity: 1; }
 th.fx-sort[data-dir="desc"]::after { content: "\2193"; opacity: 1; }
 
-/* ---- misc ----------------------------------------------------------- */
 
 dl.facts dt { font-weight: 500; color: var(--fx-dim); font-size: .82rem; }
 dl.facts dd { margin-bottom: .55rem; font-size: .88rem; }

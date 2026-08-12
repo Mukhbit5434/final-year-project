@@ -17,8 +17,6 @@ def test_every_selected_disk_feature_resolves():
 
 
 def test_byte_histogram_is_covered():
-    # 26 of the 150 selected features are byte_histogram; an earlier draft of the
-    # lookup table omitted the group entirely.
     hist = [n for n in DISK_NAMES if n.startswith("byte_histogram")]
     assert len(hist) == 26
     assert all(meanings.describe(n)["label"] for n in hist)
@@ -31,8 +29,6 @@ def test_named_general_features_are_exact():
 
 
 def test_data_directory_indices_split_size_and_address():
-    # ember writes features[2i] = size, features[2i+1] = virtual address, over
-    # _name_order. Index 8/9 is the certificate table.
     assert meanings.describe("datadirectory_feat_8")["label"] == "Certificate table size"
     assert meanings.describe("datadirectory_feat_9")["label"] == \
         "Certificate table virtual address"
@@ -55,7 +51,6 @@ def test_header_timestamp_is_exact_and_hash_buckets_are_not():
 
 
 def test_hash_groups_never_claim_a_specific_api():
-    # Hard rule 15: imports_hash buckets cannot name a DLL or function.
     for name in [n for n in DISK_NAMES if n.startswith("imports_hash")]:
         d = meanings.describe(name)
         assert d["exact"] is False
@@ -120,16 +115,12 @@ def test_unsigned_binary_stays_low_confidence():
 
 
 def test_a_signed_binary_is_not_reported_as_unsigned():
-    # general_feat_7 is has_signature and datadirectory_feat_8 is the certificate
-    # table size. Both are exact features, so the value is readable and the tag
-    # must respect it rather than firing on the feature name alone.
     signed = mitre.match(["general_feat_7", "datadirectory_feat_8"], "disk",
                          values={"general_feat_7": 1, "datadirectory_feat_8": 4312})
     assert not any("Unsigned" in m["tag"] for m in signed)
 
 
 def test_a_value_aware_tag_stays_silent_without_values():
-    # Better to say nothing than to assert something we did not check.
     assert not any("Unsigned" in m["tag"]
                    for m in mitre.match(["general_feat_7"], "disk"))
 
@@ -175,8 +166,6 @@ def test_elevated_indicators_do_raise_severity():
 
 
 def test_without_a_baseline_the_claim_is_capped():
-    # Nothing to compare against, so presence is all we have - say so and do not
-    # escalate past Medium on it.
     present = mitre.match(["malfind.ninjections", "ldrmodules.not_in_init",
                            "psxview.not_in_pslist"], "memory")
     sev, note = severity.for_memory({}, present, baselined=False)
@@ -198,8 +187,6 @@ def test_memory_severity_ignores_the_model_when_out_of_distribution():
 
 
 def test_memory_severity_is_driven_by_observations_not_the_score():
-    # No indicators at all: a confident but unreliable score must not manufacture
-    # severity on its own.
     sev, _ = severity.for_memory({}, [], probability=0.99, model_reliable=False)
     assert sev == LOW
 
@@ -211,8 +198,6 @@ def test_memory_score_contributes_but_never_drives():
     assert without == MEDIUM
     assert with_score == HIGH
 
-    # Even a reliable, confident score cannot reach Critical unaided, and cannot
-    # move anything when no indicator matched at all.
     assert severity.for_memory({}, [], probability=1.0, model_reliable=True)[0] == LOW
     everything = mitre.match(["malfind.ninjections", "ldrmodules.not_in_init",
                               "psxview.not_in_pslist", "svcscan.kernel_drivers",

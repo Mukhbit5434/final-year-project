@@ -34,8 +34,6 @@ def test_register_with_an_email_address(client):
 
 
 def test_registration_is_rejected_without_an_email(client):
-    # Server-side, not just the browser's own required-field checking - the
-    # form is posted directly, bypassing any client-side validation entirely.
     r = client.post("/register", data={"username": "noemail", "email": "",
                                        "password": "a-long-enough-pass",
                                        "confirm": "a-long-enough-pass"})
@@ -73,9 +71,6 @@ def test_bad_password_is_401_and_audited(client, analyst):
 
 
 def test_wrong_username_gives_the_same_message_as_wrong_password(client, analyst):
-    # Unknown user and bad password must be indistinguishable, or the login page
-    # becomes a user-enumeration oracle. The pages differ only by the username
-    # the client itself submitted, which tells an attacker nothing.
     a = login(client, username="ghost", password="whatever")
     b = login(client, password="nope")
     assert a.status_code == b.status_code == 401

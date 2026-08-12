@@ -76,12 +76,6 @@ def _memory(vec, label):
     elevated = baseline.compare(observed)
     matched = mitre.match(list(observed), "memory")
 
-    # No severity here, ever. Memory severity is calibrated against one reference
-    # machine's clean baseline, and a bare vector carries no provenance at all -
-    # there is no artifact, no kernel, nothing that says which machine it came
-    # from. Scoring a CIC-MalMem row against the reference baseline returns Low
-    # with every indicator "consistent with a healthy system", which is a
-    # confident wrong answer rather than a missing one. CLAUDE.md 11.1.
     print("\n  severity         not scored")
     print("  basis            severity needs a capture of the reference machine; a "
           "bare vector\n                   carries no provenance, so it is suppressed "
@@ -151,8 +145,6 @@ def main():
     from app.forensics import baseline
     from app.inference import disk, memory
 
-    # Both, always: explain.init builds an explainer per pipeline and each needs
-    # its model loaded. The app does the same at startup.
     memory.load(MODELS, REFERENCE)
     disk.load(MODELS, REFERENCE)
     explain.init(MODELS, REFERENCE)
@@ -166,8 +158,6 @@ def main():
     elif args.npy:
         vec = np.load(args.npy).astype(np.float32).reshape(-1)
         source = Path(args.npy).name
-        # The holdout scripts write a sibling .json carrying the ground-truth label;
-        # picking it up is what turns this from a demo into a check.
         sidecar = Path(args.npy).with_suffix(".json")
         if sidecar.exists():
             meta = json.loads(sidecar.read_text())

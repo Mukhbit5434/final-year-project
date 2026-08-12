@@ -31,15 +31,6 @@ TAGS = [
      "features": ["psxview.not_in_pslist", "psxview.not_in_eprocess_pool",
                   "psxview.not_in_ethread_pool", "psxview.not_in_csrss_handles",
                   "ldrmodules.not_in_mem"]},
-    # There is deliberately NO "Persistence - Services" tag on svcscan counts.
-    # It was removed 2026-08-02 and must not be re-added. A MITRE tag asserts a
-    # technique was *observed*; "more services than the baseline" is evidence of
-    # installed software, not of service-based persistence. Firing it would put a
-    # technique claim on ordinary configuration difference - the same
-    # false-positive shape already fixed for the unsigned-binary tag and the
-    # clean-capture-scored-Critical severity bug. Service counts are reported as
-    # volumetric context (baseline.volumetric_context), which cannot assert a
-    # technique and cannot touch severity.
     {"tag": "Kernel Callbacks / Driver Persistence", "id": "T1543.003",
      "name": "Create or Modify System Process: Windows Service",
      "confidence": MODERATE, "pipeline": "memory",
@@ -53,18 +44,10 @@ TAGS = [
      "pipeline": "disk", "groups": ["byte_entropy", "byte_histogram"]},
     {"tag": "Suspicious API Imports", "id": "T1106", "name": "Native API",
      "confidence": MODERATE, "pipeline": "disk", "groups": ["imports_hash"]},
-    # Deliberately low. T1553.002 is about subverting code signing - stolen or
-    # self-issued certificates - not about a binary simply lacking a signature,
-    # and a large share of legitimate software is unsigned. Word it as an
-    # observation, never as an attribution.
     {"tag": "Defense Evasion - Unsigned Binary", "id": "T1553.002",
      "name": "Subvert Trust Controls: Code Signing", "confidence": LOW,
      "pipeline": "disk",
      "features": ["general_feat_7", "datadirectory_feat_8", "datadirectory_feat_9"],
-     # These three are exact, not hashed, so their values are readable - and the
-     # tag is only true when they say the binary is *un*signed. Matching on the
-     # feature name alone would report a signed binary as unsigned whenever LIME
-     # ranked the certificate table highly, which it does either way.
      "when": lambda v: (v.get("general_feat_7", 0) == 0
                         and v.get("datadirectory_feat_8", 0) == 0)},
 ]
@@ -103,12 +86,8 @@ def match(features, pipeline, values=None):
             hits += [f for f in present if f.rsplit("_", 1)[0] == group]
         if not hits:
             continue
-        # Process hollowing is ldrmodules *plus* malfind activity; one alone is
-        # not the technique.
         if any(r not in present for r in entry.get("requires", [])):
             continue
-        # A value-aware tag stays silent when no values were supplied rather than
-        # asserting something it cannot check.
         predicate = entry.get("when")
         if predicate is not None and not (values and predicate(values)):
             continue
@@ -117,8 +96,6 @@ def match(features, pipeline, values=None):
                     "mitre_name": entry["name"], "confidence": entry["confidence"],
                     "features": sorted(set(hits)), "url": url(entry["id"])})
 
-    # Same technique can arrive under two tags; keep both tags but do not let one
-    # technique inflate the high-risk count twice.
     return out
 
 

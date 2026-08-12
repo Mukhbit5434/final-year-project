@@ -5,9 +5,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# metadata.json records what the models were actually trained/saved under.
-# xgboost/lightgbm/sklearn mismatches can change prediction output, so they are
-# checked against it; the rest just need to import.
 PINNED = ("xgboost", "lightgbm", "sklearn")
 OPTIONAL = ("numpy", "scipy", "lime", "flask", "sqlalchemy", "reportlab",
             "lief", "pytsk3", "pyewf", "volatility3")
@@ -78,7 +75,6 @@ def check_artifacts():
         line("FAIL", "subset map", f"{len(missing)} selected names absent from full list")
     else:
         idx = [pos[n] for n in sel]
-        # non-monotonic on purpose - sorting it silently mispredicts (hard rule 18)
         line("OK" if idx != sorted(idx) else "FAIL", "subset map",
              f"150 indices in [{min(idx)},{max(idx)}], non-monotonic={idx != sorted(idx)}")
 
@@ -96,8 +92,6 @@ def check_artifacts():
         line("OK" if good else "FAIL", name,
              f"{arr.shape} {arr.dtype} finite={clean} range=[{arr.min():.4g},{arr.max():.4g}]")
 
-    # 3 all-zero but 4 zero-variance: callbacks.ngeneric is constant 8.0, not 0.
-    # Asserting "3 zero-variance" is the wrong check and fails at boot.
     zero = [mem_feats[i] for i in range(mem.shape[1]) if not mem[:, i].any()]
     const = [mem_feats[i] for i in range(mem.shape[1]) if mem[:, i].std() == 0]
     line("OK" if len(zero) == 3 else "FAIL", "all-zero cols", f"{len(zero)} {zero}")
@@ -125,7 +119,6 @@ def main():
     except Exception as e:
         line("FAIL", "extractor", f"{type(e).__name__}: {e}")
     else:
-        # end-to-end proof that lief 1.0 + the patch actually vectorize a real PE
         vec = ext.feature_vector(Path(sys.executable).read_bytes())
         line("OK" if len(vec) == 2381 else "FAIL", "extractor",
              f"python.exe -> {len(vec)} features (want 2381)")

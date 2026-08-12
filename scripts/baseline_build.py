@@ -55,7 +55,6 @@ def main():
         all_features[n] = round(med, 4)
         rows.append((n, med, iqr, float(mn[i]), float(mx[i]), spread))
 
-    # The behavioural set is what severity reads; keep the same 11 in "features".
     from app.forensics import baseline as bl
     behavioural = [n for n in names if n in _behavioural_names()]
     for n in behavioural:

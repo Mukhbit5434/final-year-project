@@ -59,8 +59,6 @@ def test_every_one_of_the_55_features_is_produced():
 
 
 def test_the_vector_follows_json_order_not_insertion_order():
-    # The startup distribution check catches a full scramble but only 5 of 54
-    # adjacent swaps, so ordering here has to be structural.
     parts, unknown = sample_parts()
     vec, _ = ex.assemble(parts, NAMES, unknown)
     merged = values()
@@ -94,25 +92,18 @@ def test_process_and_dll_counts():
 
 
 def test_dll_average_divides_by_processes_present_in_dlllist():
-    # VolMemLyzer: len(dlllist) / len(set(Pid)). Two PIDs appear, not the three
-    # in pslist, so the denominator is 2.
     assert values()["dlllist.avg_dlls_per_proc"] == pytest.approx(30.0)
 
 
 def test_handle_average_divides_by_processes_holding_handles():
-    # 11 handles across 2 PIDs, not the 3 processes pslist reports.
     assert values()["handles.avg_handles_per_proc"] == pytest.approx(11 / 2)
 
 
 def test_nprocs64bit_counts_wow64_processes_despite_its_name():
-    # VolMemLyzer V1 sums the Wow64 column and V2 counts Wow64 == True. Both
-    # label it "number of 64-bit processes"; both count 32-bit-on-64-bit.
     assert values()["pslist.nprocs64bit"] == 1
 
 
 def test_avg_handlers_uses_the_handles_plugin_not_the_pslist_column():
-    # Vol3 leaves pslist's Handles column unpopulated on most builds, which
-    # silently produced 0.0 for this feature against a training floor of 50.4.
     rows = [{"PID": 4, "PPID": 0, "Threads": 10}, {"PID": 8, "PPID": 4, "Threads": 10}]
     assert ex.from_pslist(rows, 900)["pslist.avg_handlers"] == pytest.approx(450.0)
 
@@ -135,7 +126,6 @@ def test_ldrmodules_avg_divides_by_its_own_row_count():
 
 
 def test_malfind_protection_sums_volatility2_indices():
-    # PAGE_EXECUTE_READWRITE is index 6, PAGE_EXECUTE_READ is 3 -> 6 + 6 + 3.
     v = values()
     assert v["malfind.protection"] == 15.0
     assert v["malfind.ninjections"] == 3
@@ -178,16 +168,11 @@ def test_svcscan_and_callback_counts():
     assert v["svcscan.nactive"] == 3
     assert v["svcscan.interactive_process_services"] == 0
     assert v["callbacks.ncallbacks"] == 3
-    # Module == 'UNKNOWN' exactly; the blank-module row is not anonymous.
     assert v["callbacks.nanonymous"] == 1
     assert v["callbacks.ngeneric"] == 1
 
 
 def test_service_types_match_exactly_never_by_substring():
-    # Volatility only ever renders interactive services as a combined flag, so
-    # the bare comparison cannot match - which is precisely why the feature is
-    # constant 0 across the whole training set. A substring match would produce
-    # a nonzero value and push us off-distribution.
     rows = [{"Type": "SERVICE_WIN32_OWN_PROCESS|SERVICE_INTERACTIVE_PROCESS",
              "State": "SERVICE_RUNNING"},
             {"Type": "SERVICE_WIN32_OWN_PROCESS", "State": "SERVICE_STOPPED"}]
@@ -207,8 +192,6 @@ def test_duplicate_service_records_are_collapsed_by_order():
 
 
 def test_feature_count_is_locked_at_55():
-    # The ICISSP paper lists 58 including three apihooks features; the released
-    # dataset has 55 and the model has never seen the other three.
     assert ex.FEATURE_COUNT == 55
     assert len(NAMES) == 55
     with pytest.raises(ex.ExtractionError, match="55 feature names"):
@@ -232,8 +215,6 @@ def test_gaps_separate_missing_fields_from_inferred_ones():
 
 
 def test_the_gap_list_is_never_empty():
-    # An empty extraction_gaps would be a lie: six features cannot be produced by
-    # Volatility 3 at all (hard rule 8).
     _, gaps = ex.assemble(*sample_parts()[:1], NAMES)
     assert len(gaps) >= 14
 
@@ -281,8 +262,6 @@ def test_local_symbols_is_a_no_op_when_the_directory_is_absent(monkeypatch, tmp_
 
 
 def test_psxview_still_exposes_only_the_four_columns_we_mapped():
-    # If a volatility3 upgrade restores pspcid/session/deskthrd this fails, which
-    # is the point - the mapping must be rebuilt from the installed source.
     import inspect
 
     from volatility3 import framework

@@ -20,8 +20,6 @@ def load(models_dir, reference_dir):
     global _booster, _selected, _idx, _threshold
 
     here = models_dir / "disk"
-    # lightgbm_model.txt calls its inputs Column_0..Column_149 - it was trained on
-    # a bare numpy array. The only real names live in these two files.
     _selected = json.loads((here / "feature_list_selected.json").read_text())
     full = json.loads((here / "feature_list_full_2381.json").read_text())
     meta = json.loads((here / "metadata.json").read_text())
@@ -44,9 +42,6 @@ def load(models_dir, reference_dir):
         raise ModelError(f"{len(missing)} selected features absent from the 2381 list: "
                          f"{missing[:3]}")
 
-    # Computed once and reused. In selected-list order, which is NOT ascending -
-    # the indices run 1..2377 out of order and sorting them silently produces a
-    # valid-looking 150-vector that predicts wrongly (hard rule 18).
     _idx = [pos[name] for name in _selected]
     if _idx == sorted(_idx):
         raise ModelError("subset indices came out sorted; the selected list order was lost")

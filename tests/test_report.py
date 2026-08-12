@@ -78,8 +78,6 @@ def text_of(pdf):
 
     body = b" ".join(re.findall(rb"\((?:[^()\\]|\\.)*\)", pdf))
     text = body.decode("latin-1", "replace")
-    # ReportLab breaks lines mid-sentence, so collapse the string boundaries
-    # before matching phrases that span them.
     return re.sub(r"\s+", " ", text.replace("(", "").replace(")", " "))
 
 
@@ -220,9 +218,6 @@ def test_report_generated_by_line_names_the_requesting_analyst(db, analyst):
 
 
 def test_generated_by_falls_back_to_the_jobs_owner_when_not_supplied(db, analyst):
-    # scripts/verify_pipeline.py and the test suite itself render outside any
-    # request, with no current_user to pass in - must still produce something
-    # honest rather than a blank or a crash.
     job = disk_job(db, analyst)
     body = text_of(render(job))
     assert analyst.username in body

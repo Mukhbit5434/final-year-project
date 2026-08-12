@@ -7,10 +7,6 @@ from app.extractors import memory as ex
 
 NAMES = json.loads((Config.MODELS_DIR / "memory" / "feature_list.json").read_text())
 
-# What a live acquisition produced on the first x64 capture: the process list was
-# read while Windows was modifying it, so one EPROCESS came back structurally
-# torn. Magnet RAM Capture, WinPmem and DumpIt can all do this; the dataset's
-# VirtualBox snapshots were atomic and never did.
 TORN = {"PID": 88804946376740, "PPID": 4294967295123, "ImageFileName": "�",
         "Threads": 333494799, "Handles": None, "Wow64": None}
 
@@ -32,9 +28,6 @@ def test_a_torn_row_does_not_poison_the_thread_average():
 
 
 def test_a_torn_row_still_counts_toward_nproc():
-    # Ground truth on the x64 capture: Get-Process reported 67 and volatility
-    # returned 67 rows, one of them torn. The process is real; only its fields
-    # are unreadable, so dropping the row would put the count 1 below truth.
     out = ex.from_pslist(SANE + [TORN], 1000)
     assert out["pslist.nproc"] == 4
 

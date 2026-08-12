@@ -33,8 +33,6 @@ def test_a_real_pe_is_accepted():
 
 
 def test_mz_without_the_pe_signature_is_rejected():
-    # The bug this guards: checking MZ and the e_lfanew bounds but never reading
-    # the signature lets any file that happens to start with 'MZ' through.
     blob = fake_pe(signature=b"\xde\xad\xbe\xef")
     assert not extractor.looks_like_pe(blob[:0x40], len(blob), reader(blob))
 
@@ -76,8 +74,6 @@ class TestAgainstRealImage:
         assert scan["examined"] > 3000
 
     def test_every_pe_in_the_image_is_accounted_for(self, scan):
-        # 19 PE files exist; 6 are byte-identical copies under System32/Wat and
-        # SysWOW64/Wat, so 13 unique ones survive dedupe.
         deduped = [s for s in scan["skipped"] if "same SHA-256" in s["reason"]]
         assert len(scan["files"]) == 13
         assert len(deduped) == 6

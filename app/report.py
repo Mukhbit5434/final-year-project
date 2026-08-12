@@ -12,18 +12,13 @@ from reportlab.platypus import (HRFlowable, KeepTogether, PageBreak, Paragraph,
 
 from .models import DISK, MEMORY, SEVERITY_ORDER
 
-# One small palette, shared by every heading, rule and table in the document, so the
-# PDF reads as one designed thing rather than a stack of ad-hoc greys. Chosen to sit in
-# the same hue family as the web dashboard's own severity scale (app/static/app.css's
-# --fx-critical/high/medium/low), deepened for legibility on white paper rather than
-# the dashboard's dark background - same system, adapted ground.
-INK_HEX = "#1b2430"        # body text
-INK_SOFT_HEX = "#5c6b7a"   # muted labels, captions, footer
-ACCENT_HEX = "#2c5a82"     # section headings
-RULE_HEX = "#b9c6d3"       # section dividers - a tint of the accent, not full strength
-PANEL_HEX = "#eef1f4"      # table header fill
-LINE_HEX = "#d7dde3"       # table grid / kv row dividers
-ZEBRA_HEX = "#f7f9fb"      # alternate row tint on multi-row tables
+INK_HEX = "#1b2430"
+INK_SOFT_HEX = "#5c6b7a"
+ACCENT_HEX = "#2c5a82"
+RULE_HEX = "#b9c6d3"
+PANEL_HEX = "#eef1f4"
+LINE_HEX = "#d7dde3"
+ZEBRA_HEX = "#f7f9fb"
 
 INK = colors.HexColor(INK_HEX)
 INK_SOFT = colors.HexColor(INK_SOFT_HEX)
@@ -42,25 +37,6 @@ def _sev_hex(severity):
     return SEVERITY_HEX.get(severity, INK_HEX)
 
 
-# Strings that must survive into every report of the relevant kind. The test suite
-# asserts each one, so removing a limitation from the renderer fails the build
-# rather than quietly shipping a report that overstates its own confidence.
-# Trimmed 2026-08-06 (CLAUDE.md §18): the triage-note, lief-version caveat and MITRE
-# disclaimer paragraphs are no longer emitted, so their required substrings dropped
-# out of these lists along with them.
-# Trimmed further 2026-08-11 (CLAUDE.md §18, fifth pass): the memory pipeline's
-# "Model applicability" limitations paragraph (OOD explanation + the SMOTE/saturation
-# caveat) and the "Reference environment and scope" paragraph are no longer rendered -
-# an analyst-facing display decision, not a change to the underlying gates.
-# Trimmed further still, same day (sixth pass): the raw OOD number and the Appendix's
-# out-of-range feature list.
-# Trimmed further still, same day (seventh pass): every remaining caveat/limitation
-# display for memory - the job-detail hero box, the "Extraction gaps" and "Baseline for
-# the observed indicators" limitations sections, the "Configuration context" box, the
-# whole Appendix section, and the "model score withheld..." clause inside severity_note
-# (app/forensics/severity.py). None of the underlying computations changed - ood_count,
-# extraction_gaps, baseline comparisons and severity levels are all still computed and
-# stored exactly as before; only what gets printed about them did.
 REQUIRED_ALWAYS = [
     "Scope and limitations",
 ]
@@ -272,7 +248,6 @@ def render(job, compress=True, generated_by=None):
                      key=lambda r: (-SEVERITY_ORDER.get(r.severity, 0), -r.probability))
     flow = []
 
-    # 1. Header / chain of custody
     flow.append(Paragraph("Malware Analysis Report", st["title"]))
     flow.append(Paragraph(
         f"{job.artifact or 'unknown'} artifact &middot; job {job.id} &middot; generated "
@@ -301,21 +276,14 @@ def render(job, compress=True, generated_by=None):
     ]
     flow.append(_kv(custody, st))
 
-    # 2. Executive summary
     _rule(flow)
     severity, summary = _summary(job, results)
     flow.append(Paragraph("2. Executive summary", st["h"]))
-    # Never fall back to Low. An absent severity means it could not be computed,
-    # and defaulting to the reassuring end of the scale is the wrong direction to
-    # fail in - it reads as "nothing to worry about" on a report that in fact
-    # scored nothing at all. Colour follows the same severity scale as the web
-    # dashboard (SEVERITY_HEX above), so the two surfaces read as one system.
     flow.append(Paragraph(
         f"<font color='{_sev_hex(severity)}'><b>Overall severity: "
         f"{severity or 'not scored'}</b></font>", st["p"]))
     flow.append(Paragraph(summary, st["p"]))
 
-    # 3. Verdict detail
     _rule(flow)
     flow.append(Paragraph("3. Verdict detail", st["h"]))
     if job.artifact == MEMORY and results:
@@ -337,7 +305,6 @@ def render(job, compress=True, generated_by=None):
             ("Files examined", f"{job.files_scanned or 0:,}"),
         ], st))
 
-    # 4/5. Findings, per file for disk
     _rule(flow)
     flow.append(Paragraph("4. Findings", st["h"]))
     if not results:
@@ -350,7 +317,6 @@ def render(job, compress=True, generated_by=None):
         if r.severity_note:
             block.append(Paragraph(r.severity_note, st["small"]))
         if r.file_sha256:
-            # Hard rule 16: a flagged file without path and hash is unactionable.
             block.append(Spacer(1, 3))
             block.append(_kv([
                 ("SHA-256", f"<font face='Courier' size='6.5'>{r.file_sha256}</font>"),
@@ -379,8 +345,6 @@ def render(job, compress=True, generated_by=None):
         flow.append(KeepTogether(block))
         flow.append(Spacer(1, 6))
 
-    # Section 5 is per-process evidence, but only for a memory job that has any -
-    # so Scope and limitations renumbers to 6 rather than colliding on "5".
     sections = evidence_rows(job) if job.artifact == MEMORY else []
     scope_no = 6 if sections else 5
 
@@ -399,15 +363,10 @@ def render(job, compress=True, generated_by=None):
             data = [[Paragraph(f"<b>{c}</b>", st["small"]) for c in columns]]
             for row in rows:
                 data.append([Paragraph(str(v), st["small"]) for v in row])
-            # Evidence sections carry different column counts (Parent process
-            # widened injected_regions/hidden_modules to six; unbacked_callbacks
-            # has no PID/parent at all, so stays at four) - split the usable page
-            # width evenly per section rather than a single hardcoded tuple.
             col_w = (160 * mm) / len(columns)
             flow.append(_table(data, [col_w] * len(columns)))
             flow.append(Spacer(1, 6))
 
-    # Scope and limitations - mandatory, always rendered.
     flow.append(PageBreak())
     flow.append(Paragraph(f"{scope_no}. Scope and limitations", st["h"]))
     for heading, paragraphs in limitations(job):

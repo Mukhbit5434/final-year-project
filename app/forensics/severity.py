@@ -1,7 +1,5 @@
 from ..models import CRITICAL, HIGH, LOW, MEDIUM
 
-# Categories that describe an actively hostile capability rather than an
-# observation about how a machine is set up.
 HIGH_RISK = {"Process Injection", "Process Hollowing", "Rootkit / Hidden Artifacts",
              "Hidden Modules / DLL Concealment", "Persistence - Services",
              "Kernel Callbacks / Driver Persistence"}
@@ -66,8 +64,6 @@ def for_memory(observed, matched, probability=None, model_reliable=False,
               f"{basis}"]
 
     if not baselined:
-        # Without a baseline every category is "present", which on a healthy
-        # machine is most of them. Cap the claim rather than overstate it.
         level = min(level, 1)
 
     if elevated >= 2:
@@ -77,15 +73,8 @@ def for_memory(observed, matched, probability=None, model_reliable=False,
         reason.append("1 indicator elevated against baseline")
 
     if probability is None or not model_reliable:
-        # Unreliable or absent: excluded from both the level (already true above -
-        # this branch never touches `level`) and, as of CLAUDE.md §18's seventh pass,
-        # from the reason text too. The exclusion itself is still real and still
-        # happens; only the sentence explaining it to a reader was removed.
         pass
     elif probability >= 0.9 and level >= 1:
-        # Contributes, never drives: it cannot raise severity when no indicator
-        # matched, and it cannot lift anything past High on its own. max() keeps
-        # the cap from demoting a result the evidence already put at Critical.
         level = max(level, min(level + 1, 2))
         reason.append(f"model confidence {probability:.2f}, in distribution")
 

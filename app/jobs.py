@@ -54,8 +54,6 @@ def extract_disk(path, max_files, max_bytes, progress_file=None):
     out = disk.scan(path, max_files=max_files, max_bytes=max_bytes, workers=2,
                     progress=lambda n, p: report(f"Vectorising executable {n}"))
     report("Scoring executables")
-    # Vectors come back as float32 arrays; lists survive pickling between
-    # interpreter versions more predictably and this is not a hot path.
     for rec in out["files"]:
         rec["vec"] = rec["vec"].tolist()
     return out
@@ -116,7 +114,6 @@ def start(app, job_id):
 
 
 def run(app, job_id):
-    # Flask-Executor hands the task a bare thread with no application context.
     with app.app_context():
         job = db.session.get(Job, job_id)
         if job is None:
@@ -194,7 +191,6 @@ def _disk(app, job, path):
         db.session.add(result)
 
         if not malicious:
-            # Explaining a benign verdict wastes the expensive part of LIME.
             result.severity, result.severity_note = severity.for_disk(
                 prob, [], model.threshold())
             continue
@@ -223,8 +219,6 @@ def _memory(app, job, path):
 
     prob, malicious = model.predict(vec)
     count, fields = model.ood(vec)
-    # The score is only worth admitting when the four features the model actually
-    # leans on are inside the range it was fitted on (CLAUDE.md 5.4a, 9.6).
     dominant = model.dominant_ood(vec)
     reliable = not dominant
 
@@ -234,22 +228,14 @@ def _memory(app, job, path):
     job.plugin_seconds = out.get("plugin_seconds")
     job.evidence = out.get("evidence")
 
-    # Evidence first. These are Volatility's measurements of this dump and hold
-    # whatever the probability says, so they are collected regardless of verdict.
     observed = meanings.observed(vec, names)
     elevated = baseline.compare(observed)
 
-    # Two matches on purpose. Findings are labelled from everything observed, so
-    # the analyst sees what each measurement maps to. Severity counts only what
-    # stands out against the clean baseline - matching on presence alone scored
-    # the clean reference capture itself as Critical.
     matched = mitre.match(list(observed), "memory")
     standout = mitre.match([f for f, is_high in elevated.items() if is_high], "memory")
     sev, note = severity.for_memory(elevated, standout, prob, reliable,
                                     baselined=baseline.loaded())
 
-    # Configuration counts, reported as context only. Computed after severity and
-    # never passed to it: an elevated service count means software was installed.
     volumetric, volumetric_note = baseline.volumetric_context(vec, names, elevated)
     job.volumetric = {"raised": volumetric, "note": volumetric_note}
 
@@ -266,8 +252,6 @@ def _memory(app, job, path):
         d["rank"] = len(described) + 1
         described.append(d)
 
-    # LIME explains the model, so it only earns its runtime when the model both
-    # flags and is worth listening to.
     if malicious and reliable:
         seen = {d["feature"] for d in described}
         for d in explain.memory_findings(vec):
@@ -287,8 +271,6 @@ def recover_orphans(app):
             job.status = FAILED
             job.error = "interrupted: the server stopped while this job was running"
             job.finished_at = utcnow()
-            # The worker died mid-stage, so the row still claims to be running
-            # windows.handles and its progress file is orphaned.
             job.stage = None
             job.progress_pct = None
             _progress_file(app, job.id).unlink(missing_ok=True)

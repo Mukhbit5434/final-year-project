@@ -42,12 +42,9 @@ def main():
         procs.append(subprocess.Popen(["cmd", "/c", "exit"],
                                       creationflags=CREATE_NO_WINDOW))
     for p in procs:
-        p.wait()  # each runs "exit" and terminates immediately
+        p.wait()
     elapsed = time.time() - t0
 
-    # procs stays referenced for the life of this process, so the Popen objects -
-    # and the process handles they hold - are not garbage-collected. The terminated
-    # EPROCESS objects therefore remain resident and psscan keeps finding them.
     alive = sum(1 for p in procs if p.returncode is not None)
     print(f"{alive}/{COUNT} processes spawned and terminated in {elapsed:.1f}s; "
           "their handles are held open by this process.")

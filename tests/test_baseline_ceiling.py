@@ -34,7 +34,6 @@ def test_ceiling_is_observed_max_times_margin(seven_cap):
 
 
 def test_the_fresh_boot_peak_does_not_flag_itself(seven_cap):
-    # 33 is the clean maximum; it must not read as elevated against a ceiling of 39.6.
     assert baseline.compare({"psxview.not_in_pslist": 33.0}) == {
         "psxview.not_in_pslist": False}
 
@@ -47,7 +46,7 @@ def test_a_value_above_the_ceiling_is_elevated(seven_cap):
 
 
 def test_a_value_just_under_the_ceiling_is_not(seven_cap):
-    assert baseline.compare({"malfind.ninjections": 10.0})[  # 9 * 1.2 = 10.8
+    assert baseline.compare({"malfind.ninjections": 10.0})[
         "malfind.ninjections"] is False
 
 
@@ -64,7 +63,6 @@ def test_phrase_names_the_clean_capture_count_and_max(seven_cap):
 
 def test_volumetric_uses_the_clean_maximum_not_a_multiplier(seven_cap):
     names = ["svcscan.nservices", "pslist.nproc"]
-    # 800 services against a clean max of 636 -> elevated; process count normal.
     vec = np.array([800.0, 85.0])
     raised, note = baseline.volumetric_context(vec, names, {})
     assert [r["feature"] for r in raised] == ["svcscan.nservices"]

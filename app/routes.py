@@ -73,7 +73,6 @@ def job_detail(job_id):
     from .forensics import baseline
 
     job = _owned(job_id)
-    # Most severe first: an analyst reads the top of this table and stops.
     results = sorted(job.results,
                      key=lambda r: (-SEVERITY_ORDER.get(r.severity, 0), -r.probability))
     counts = Counter(r.severity or "Unrated" for r in results)
@@ -147,8 +146,6 @@ def _plain(value):
 @login_required
 def job_status(job_id):
     job = _owned(job_id)
-    # Counts only. The per-file table can run to hundreds of rows and the page
-    # polls this every few seconds until the job settles.
     return {"id": job.id, "status": job.status, "error": job.error,
             "done": job.done, "duration": job.duration,
             "stage": job.stage, "progress_pct": job.progress_pct,
@@ -158,9 +155,6 @@ def job_status(job_id):
 
 @bp.route("/upload", methods=["GET", "POST"])
 @login_required
-# Callable, not a literal: a capture session uploads five clean dumps plus a
-# malicious one plus a disk image plus retries, and a hardcoded limit would stop
-# it halfway through. UPLOAD_RATE_LIMIT is read per request.
 @limiter.limit(lambda: current_app.config["UPLOAD_RATE_LIMIT"], methods=["POST"])
 def upload():
     form = UploadForm()
@@ -231,7 +225,6 @@ def confirm_type(job_id):
 
 def _owned(job_id):
     job = db.session.get(Job, job_id)
-    # 404 rather than 403 on someone else's job - a 403 confirms the id exists.
     if job is None or job.user_id != current_user.id:
         abort(404)
     return job

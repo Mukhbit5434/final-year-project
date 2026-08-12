@@ -5,9 +5,6 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import db
 
-# NEEDS_TYPE is where a .raw lands when content inspection can't tell a disk image
-# from a memory dump. It is a normal outcome, not an error - a raw memory dump has
-# no magic bytes to find (CLAUDE.md 10).
 NEEDS_TYPE, PENDING, RUNNING, COMPLETED, FAILED = (
     "NEEDS_TYPE", "PENDING", "RUNNING", "COMPLETED", "FAILED")
 DISK, MEMORY = "disk", "memory"
@@ -52,20 +49,13 @@ class Job(db.Model):
     stored_name = db.Column(db.String(128), unique=True, nullable=False)
     sha256 = db.Column(db.String(64), nullable=False, index=True)
     size_bytes = db.Column(db.BigInteger, nullable=False)
-    # Free text, analyst-supplied at upload, entirely optional. Never required -
-    # a case number an analyst doesn't have yet must never block an upload.
     case_reference = db.Column(db.String(128))
-    # Null only while status is NEEDS_TYPE, i.e. detection was inconclusive and
-    # the analyst has not answered yet.
     artifact = db.Column(db.String(8))
     detected_as = db.Column(db.String(32))
 
     status = db.Column(db.String(16), default=PENDING, nullable=False, index=True)
     error = db.Column(db.Text)
 
-    # Extraction reports what it is doing from inside the worker process; the
-    # supervisor copies it here so the page has something to show for the several
-    # minutes a real artifact takes. Null pct means "working, total unknown".
     stage = db.Column(db.String(80))
     progress_pct = db.Column(db.Integer)
 
@@ -75,24 +65,13 @@ class Job(db.Model):
 
     files_scanned = db.Column(db.Integer)
     files_flagged = db.Column(db.Integer)
-    # [{path, reason}] - an analyst has to be able to tell "scanned and clean"
-    # from "never examined", so skips are recorded, not dropped.
     skipped = db.Column(db.JSON)
 
-    # Memory only. gaps are [{field, reason, plugin, confidence}] and cover both
-    # missing fields and ones whose derivation is inferred (CLAUDE.md 5.5).
     extraction_gaps = db.Column(db.JSON)
     ood_count = db.Column(db.Integer)
     ood_fields = db.Column(db.JSON)
-    # {plugin: seconds}. Kept because total runtime varies ~2x between runs on
-    # identical input and the cause is not identified - see STATUS.md.
     plugin_seconds = db.Column(db.JSON)
-    # Per-process locators - PIDs, region addresses, module paths - so a memory
-    # report is investigable rather than a set of counts. Same shape of value the
-    # disk pipeline gives per file.
     evidence = db.Column(db.JSON)
-    # Configuration counts elevated against the baseline, reported as context.
-    # Structurally separate from severity - see baseline.volumetric_context.
     volumetric = db.Column(db.JSON)
 
     user = db.relationship("User", back_populates="jobs")
@@ -121,16 +100,11 @@ class Result(db.Model):
                        nullable=False, index=True)
 
     probability = db.Column(db.Float, nullable=False)
-    # Stored per row rather than looked up later: the operating thresholds are
-    # 0.2337 and 0.5011, and a report has to show the one actually applied.
     threshold = db.Column(db.Float, nullable=False)
     malicious = db.Column(db.Boolean, nullable=False)
     severity = db.Column(db.String(16))
     severity_note = db.Column(db.String(255))
 
-    # Everything below is disk-only and null on the single memory row, where the
-    # unit of analysis is the whole dump. Hard rule 16: no flagged file ships
-    # without path and file_sha256.
     path = db.Column(db.Text)
     partition = db.Column(db.String(64))
     inode = db.Column(db.String(64))
@@ -138,7 +112,6 @@ class Result(db.Model):
     file_md5 = db.Column(db.String(32))
     file_size = db.Column(db.BigInteger)
     allocated = db.Column(db.Boolean)
-    # Omitted rather than guessed - TSK does not expose it for resident files.
     data_offset = db.Column(db.BigInteger)
     mtime = db.Column(db.DateTime)
     atime = db.Column(db.DateTime)
@@ -165,8 +138,6 @@ class Finding(db.Model):
                           nullable=False, index=True)
 
     feature = db.Column(db.String(128), nullable=False)
-    # LIME contribution. Kept for the report appendix; never rendered raw in the
-    # findings themselves (CLAUDE.md 8).
     weight = db.Column(db.Float)
     rank = db.Column(db.Integer)
 
@@ -193,7 +164,6 @@ class AuditLog(db.Model):
     __tablename__ = "audit_log"
 
     id = db.Column(db.Integer, primary_key=True)
-    # Null for events with no authenticated user, e.g. a rejected login.
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), index=True)
     job_id = db.Column(db.Integer, db.ForeignKey("jobs.id"), index=True)
 

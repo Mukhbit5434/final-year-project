@@ -2,23 +2,13 @@ import importlib.util
 import sys
 from pathlib import Path
 
-# Both patches exist because ember 2018 targets lief 0.9.0 and we run lief 1.0.0
-# (the version that produced the training features - see models/disk/metadata.json).
-# Neither changes a feature value; they only make extraction run at all.
 PATCHES = (
     (
-        # elastic/ember PR #109. FeatureHasher(input_type="string") wants an
-        # iterable of iterables; ember passes a bare string, so every sample dies
-        # with "ValueError: Samples can not be a single string".
         "featurehasher",
         'FeatureHasher(50, input_type="string").transform([raw_obj[\'entry\']]).toarray()[0]',
         'FeatureHasher(50, input_type="string").transform([[raw_obj[\'entry\']]]).toarray()[0]',
     ),
     (
-        # lief 1.0 dropped bad_format/bad_file/pe_error/parser_error/read_out_of_bound,
-        # so building this tuple raises AttributeError before any parsing happens.
-        # Resolve whatever the installed lief still exposes; RuntimeError always
-        # applies. Catch-set only - parse behaviour is unchanged.
         "lief_errors",
         """        lief_errors = (lief.bad_format, lief.bad_file, lief.pe_error, lief.parser_error, lief.read_out_of_bound,
                        RuntimeError)""",
@@ -29,9 +19,6 @@ PATCHES = (
         ) + (RuntimeError,)""",
     ),
     (
-        # np.int was removed in numpy 1.24. Pinning numpy back is not an option -
-        # xgboost 3.2.0 and sklearn 1.6.1 both require newer. int is what the
-        # alias always meant, so the dtype is unchanged.
         "np_int",
         "output = np.zeros((16, 16), dtype=np.int)",
         "output = np.zeros((16, 16), dtype=int)",
@@ -40,8 +27,6 @@ PATCHES = (
 
 
 def features_path():
-    # find_spec rather than import: ember/__init__.py pulls in pandas and
-    # lightgbm, and the patch must work even if those are half-installed.
     spec = importlib.util.find_spec("ember")
     if spec is None or not spec.origin:
         raise RuntimeError("ember is not installed")

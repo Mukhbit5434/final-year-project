@@ -24,7 +24,7 @@ DUMPS = [
     ("clean_4_apps", 92, 253, 364),
     ("clean_5_afterclose", 80, 253, 363),
     ("clean_6_pair_a", 83, 253, 363),
-    ("clean_7_pair_b", None, None, None),  # counts not re-run; ~15-30s after #6
+    ("clean_7_pair_b", None, None, None),
 ]
 
 OUT = ROOT / "data" / "baseline_vectors"
@@ -32,7 +32,7 @@ OUT = ROOT / "data" / "baseline_vectors"
 
 def main():
     from volatility3.framework import constants
-    constants.OFFLINE = True  # symbols are staged; never hit the network mid-run
+    constants.OFFLINE = True
 
     from app.extractors import memory as ex
     from app.inference import memory as model

@@ -7,11 +7,6 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# Volatility 2's vadinfo.PROTECT_FLAGS, index-for-index. malfind.protection in
-# CIC-MalMem-2022 sums these *indices*, not the Win32 constants: mean protection
-# over mean ninjections comes to ~6.0, and index 6 is PAGE_EXECUTE_READWRITE,
-# which is exactly what malfind hits on. The Win32 value would be 0x40 = 64 and
-# does not fit. Vol3 emits the flag as a string, hence this table.
 PROTECT_INDEX = {
     "PAGE_NOACCESS": 0,
     "PAGE_READONLY": 1,
@@ -23,8 +18,6 @@ PROTECT_INDEX = {
     "PAGE_EXECUTE_WRITECOPY": 7,
 }
 
-# Vol2's psxview enumerated processes seven ways; vol3's exposes four. Confirmed
-# against the installed volatility3 2.28 source, not documentation.
 PSXVIEW_SOURCE = {
     "not_in_pslist": "pslist",
     "not_in_eprocess_pool": "psscan",
@@ -43,8 +36,6 @@ HANDLE_TYPES = {
     "handles.nsection": "Section", "handles.nmutant": "Mutant",
 }
 
-# ldrmodules, malfind and psxview live under windows.malware.* now; the old
-# windows.* names still resolve but emit a removal warning dated 2026-06-07.
 PLUGINS = {
     "pslist": "windows.pslist.PsList",
     "dlllist": "windows.dlllist.DllList",
@@ -58,9 +49,6 @@ PLUGINS = {
 }
 
 
-# The ICISSP 2022 paper's Table 1 lists 58 features including an Apihooks group
-# (nhooks, nhookInLine, nhooksInUsermode). The CIC team dropped those three from
-# the released CSV, so the shipped model has never seen them. 55, never 58.
 FEATURE_COUNT = 55
 
 
@@ -68,10 +56,6 @@ class ExtractionError(RuntimeError):
     pass
 
 
-# Repo-local ISF cache. Volatility's own cache lives in the user's AppData, so a
-# fresh checkout or an offline machine would re-download - or fail. Set here, not
-# in create_app: extraction runs in a worker process that never builds the Flask
-# app. scripts/fetch_symbols.py populates it.
 SYMBOLS = Path(__file__).resolve().parents[2] / "symbols"
 
 
@@ -86,8 +70,6 @@ def _use_local_symbols():
 
 
 def _url(path):
-    # pathname2url handles the spaces in this project's own path, which a naive
-    # "file://" + str(path) does not.
     return urllib.parse.urljoin("file:", urllib.request.pathname2url(str(Path(path).resolve())))
 
 
@@ -126,9 +108,6 @@ def build_context(dump, catalog=None):
     layer = ctx.config["plugins.PsList.kernel.layer_name"]
     bits = 64 if isinstance(ctx.layers[layer], intel.Intel32e) else 32
     if bits != 64:
-        # Earliest reliable point: a raw dump carries no header identifying its
-        # architecture, so this cannot be caught at upload. The layer class is the
-        # first thing that settles it, and it settles it before any plugin runs.
         raise ExtractionError(
             "this memory capture is not 64-bit. The memory pipeline is scoped to a "
             "controlled reference environment, Windows 10 x64, and does not analyse "
@@ -164,8 +143,6 @@ def run_plugin(dump, plugin, catalog=None, prepared=None):
         ctx.config[f"{base}.layer_name"] = prepared["layer"]
         ctx.config[f"{base}.symbol_table_name"] = prepared["symbols"]
         ctx.config[f"{base}.offset"] = prepared["offset"]
-        # KernelModule reads the kernel base from under the layer requirement's
-        # own path rather than from the layer's config, so it has to be here too.
         ctx.config[f"{base}.layer_name.kernel_virtual_offset"] = prepared["offset"]
     autos = automagic.choose_automagic(automagic.available(ctx), cls)
 
@@ -191,12 +168,6 @@ def _ratio(numerator, denominator):
     return float(numerator) / denominator if denominator else 0.0
 
 
-# A live acquisition reads memory while Windows is still modifying it, so the
-# process list can be caught mid-update and yield a structurally torn row: an
-# unprintable image name, a PID far outside any real range, a thread count in the
-# hundreds of millions, an exit time centuries away. One such row moved
-# pslist.avg_threads from 13.5 to 4,977,547 on the first x64 capture. The row is
-# still a process - the count stays right - but its fields cannot be averaged.
 MAX_PID = 0xFFFFFFFF
 MAX_THREADS = 100000
 
@@ -219,23 +190,13 @@ def from_pslist(rows, nhandles):
         "pslist.nproc": float(n),
         "pslist.nppid": float(len(ppids)),
         "pslist.avg_threads": _ratio(sum(threads), len(threads)),
-        # Counts WOW64 processes - 32-bit processes on a 64-bit kernel - despite
-        # the name. VolMemLyzer V1 sums the Wow64 column, V2 counts Wow64 == True;
-        # both label it "number of 64-bit processes" and both are the opposite of
-        # that. Matching the reference implementation matters more than the name.
         "pslist.nprocs64bit": _count(rows, lambda r: r.get("Wow64") is True),
-        # VolMemLyzer divides pslist's own Hnds column by nproc. volatility3
-        # leaves Hnds unpopulated, so the numerator comes from the handles plugin
-        # instead; the denominator still differs from avg_handles_per_proc below,
-        # which is why both stay disclosed as inferred.
         "pslist.avg_handlers": _ratio(nhandles, n),
     }
 
 
 def from_dlllist(rows):
     n = len(rows)
-    # len(dlllist) / len(set(Pid)) - the processes that appear in dlllist, not
-    # pslist.nproc. The two differ whenever a process has no readable module list.
     return {
         "dlllist.ndlls": float(n),
         "dlllist.avg_dlls_per_proc": _ratio(n, len({r.get("PID") for r in rows})),
@@ -244,11 +205,8 @@ def from_dlllist(rows):
 
 def from_handles(rows):
     out = {"handles.nhandles": float(len(rows)),
-           # Likewise divided by the processes holding handles, not by nproc.
            "handles.avg_handles_per_proc": _ratio(
                len(rows), len({r.get("PID") for r in rows})),
-           # The Port object type is XP/2003 era and absent from modern Windows.
-           # Training saw 0 everywhere too, so this costs nothing.
            "handles.nport": 0.0}
     for field, type_name in HANDLE_TYPES.items():
         out[field] = _count(rows, lambda r, t=type_name: r.get("Type") == t)
@@ -262,9 +220,6 @@ def from_ldrmodules(rows):
                           ("not_in_mem", "InMem")):
         missing = _count(rows, lambda r, c=column: r.get(c) is False)
         out[f"ldrmodules.{field}"] = missing
-        # Denominator is this plugin's own row count. Testing the reference data
-        # against dlllist.ndlls leaves a consistent 1.8% error; against its own
-        # count it closes.
         out[f"ldrmodules.{field}_avg"] = _ratio(missing, n)
     return out
 
@@ -284,9 +239,6 @@ def from_malfind(rows, nproc):
         "malfind.ninjections": float(len(rows)),
         "malfind.commitCharge": float(sum(r.get("CommitCharge") or 0 for r in rows)),
         "malfind.protection": protection,
-        # Fractional in training (max 68.25) so not a count, and 12x off from
-        # ninjections/nproc. Injections per *injected* process is the closest
-        # reading that survives the reference data; still inferred.
         "malfind.uniqueInjections": _ratio(len(rows), injected_procs),
     }, unknown
 
@@ -301,9 +253,6 @@ def from_psxview(rows):
             continue
         missing = _count(rows, lambda r, c=column: r.get(c) is False)
         out[f"psxview.{field}"] = missing
-        # psxview's own union-of-sources count, not pslist.nproc: measured against
-        # the reference data the latter leaves a uniform 2.27% error because
-        # psscan also turns up terminated processes.
         out[f"psxview.{field}_false_avg"] = _ratio(missing, n)
     return out
 
@@ -332,13 +281,6 @@ def dedupe_services(rows):
 
 
 def from_svcscan(rows):
-    # Exact equality, not substring: VolMemLyzer compares
-    # ServiceType == 'SERVICE_KERNEL_DRIVER' and friends. Volatility renders
-    # interactive services only as combined flags
-    # ("SERVICE_WIN32_OWN_PROCESS|SERVICE_INTERACTIVE_PROCESS"), so the bare
-    # comparison never matches and interactive_process_services is structurally
-    # 0 - which is exactly why it is constant 0 across the whole training set.
-    # A substring match would "fix" that and put us off-distribution.
     def typed(name):
         return _count(rows, lambda r: str(r.get("Type")) == name)
 
@@ -356,19 +298,12 @@ def from_svcscan(rows):
 def from_callbacks(rows):
     return {
         "callbacks.ncallbacks": float(len(rows)),
-        # VolMemLyzer: Module == 'UNKNOWN' exactly. Counting blanks and 'N/A' as
-        # anonymous too would inflate this above what the model was fitted on.
         "callbacks.nanonymous": _count(rows, lambda r: str(r.get("Module")) == "UNKNOWN"),
-        # Constant at 8.0 across every training row, so the model never split on
-        # it. Emitted honestly regardless; the value cannot change a prediction.
         "callbacks.ngeneric": _count(
             rows, lambda r: "GenericKernelCallback" in str(r.get("Type") or "")),
     }
 
 
-# Fields whose value is emitted but whose derivation is inferred rather than
-# documented. They belong in extraction_gaps flagged as inferred, not missing -
-# hiding them would misrepresent how solid the vector is.
 INFERRED = {
     "malfind.protection": "summed Volatility 2 protection index, inferred from training statistics",
     "malfind.uniqueInjections": "injections per injected process; original derivation unknown",
@@ -431,17 +366,9 @@ def assemble(parts, feature_names, unknown_protection=(), torn=0):
     return vec, gaps
 
 
-# Per-category cap on the locators kept. A clean Windows 10 capture produces 23
-# injected regions and 230 loader-list mismatches; an analyst reads the top of the
-# list and pivots, so keeping every row would bloat the job row for no gain.
 EVIDENCE_CAP = 25
 
 
-# Everything below crosses a process boundary by pickle, and volatility hands back
-# renderer objects - BitField, UnreadableValue - not plain ints. They pickle in the
-# worker and blow up on the way out, taking the whole pool with them
-# (BrokenProcessPool). So every field is coerced to a builtin here, without
-# exception. Measured: this is what broke the first evidence run.
 def _int(value):
     try:
         return int(value)
@@ -517,7 +444,6 @@ def evidence(collected):
             "commit": _int(r.get("CommitCharge")),
             "private": _int(r.get("PrivateMemory")) == 1,
         })
-    # Largest regions first: a 4 KB RWX page is ordinary, a multi-megabyte one is not.
     injected.sort(key=lambda d: -(d["size"] or 0))
     out["injected_regions"] = injected[:EVIDENCE_CAP]
     for d in out["injected_regions"]:
@@ -534,7 +460,6 @@ def evidence(collected):
             "base": _hex(r.get("Base")), "absent_from": absent,
             "path": _text(r.get("MappedPath")),
         })
-    # Missing from all three lists is the strong signal; one omission is routine.
     hidden_modules.sort(key=lambda d: -len(d["absent_from"]))
     out["hidden_modules"] = hidden_modules[:EVIDENCE_CAP]
     for d in out["hidden_modules"]:
@@ -549,8 +474,6 @@ def evidence(collected):
         hidden_procs.append({
             "pid": _int(r.get("PID")), "name": _text(r.get("Name")),
             "missing_from": absent,
-            # A terminated process legitimately survives in pool scans, so an exit
-            # time is usually the innocent explanation for the discrepancy.
             "exit_time": _text(r.get("Exit Time")),
         })
     hidden_procs.sort(key=lambda d: -len(d["missing_from"]))
@@ -564,8 +487,6 @@ def evidence(collected):
     } for r in collected.get("callbacks", []) if str(r.get("Module")) == "UNKNOWN"]
     out["unbacked_callbacks"] = unbacked[:EVIDENCE_CAP]
 
-    # Totals of what was *found*, not of what survived the cap - otherwise the
-    # report would quietly understate the capture.
     out["totals"] = {"injected_regions": len(injected),
                      "hidden_modules": len(hidden_modules),
                      "hidden_processes": len(hidden_procs),
@@ -581,10 +502,6 @@ def extract(dump, feature_names, progress=None):
     framework.import_files(volatility3.plugins, True)
     catalog = framework.list_plugins()
 
-    # Total runtime has been seen to vary by 2x between runs on identical input
-    # and the cause is not identified. Per-plugin timings are the cheapest way to
-    # localise it: even spread points at the machine, one plugin moving points at
-    # that plugin's I/O.
     timings = {}
     t0 = time.perf_counter()
     prepared = build_context(dump, catalog)

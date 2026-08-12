@@ -77,7 +77,6 @@ def test_stored_name_is_ours_not_the_clients(client, signed_in):
     job = db.session.query(Job).one()
     assert ".." not in job.stored_name and "/" not in job.stored_name
     assert job.stored_name.endswith(".dd")
-    # the original is kept for the report, but only ever as a display string
     assert ".." in job.filename
 
 

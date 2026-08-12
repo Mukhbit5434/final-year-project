@@ -68,10 +68,6 @@ def test_disk_reference_split_is_bimodal(disk_ref):
 
 @pytest.mark.parametrize("seed", range(8))
 def test_scrambled_memory_columns_are_rejected_at_load(mem_ref, seed):
-    # Permanent control, not a one-off. Measured over 200 permutations the guard
-    # catches all of them, but the failure signature varies - some scrambles push
-    # everything above the threshold, others squash it into the middle - so the
-    # assertion is "the startup check refuses this", never a fixed statistic.
     perm = np.random.default_rng(seed).permutation(55)
     with pytest.raises(memory.ModelError, match="distribution"):
         memory._check_reference(mem_ref[:, perm])
@@ -99,8 +95,6 @@ def test_the_distribution_check_does_not_catch_small_transpositions(disk_ref):
 
 
 def test_sorting_the_subset_indices_changes_the_answer(disk_ref):
-    # Guards the specific mistake hard rule 18 describes: both orderings produce
-    # a valid 150-vector and neither raises.
     probe = np.zeros(2381)
     probe[disk.indices()] = np.linspace(1, 100, 150)
     right = disk.predict(disk.subset(probe))[0]
@@ -143,8 +137,6 @@ def test_ood_is_silent_on_training_rows(mem_ref):
 
 
 def test_ood_flags_a_modern_host(mem_ref):
-    # Roughly what a real Windows 10/11 x64 dump produces. Every one of these is
-    # outside the single VM build CIC-MalMem-2022 was captured from.
     vec = np.median(mem_ref, axis=0)
     for name, real in (("modules.nmodules", 400), ("svcscan.nservices", 600),
                        ("svcscan.kernel_drivers", 350), ("pslist.nprocs64bit", 40),

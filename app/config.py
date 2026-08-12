@@ -15,30 +15,20 @@ class Config:
         "DATABASE_URL", f"sqlite:///{(ROOT / 'instance' / 'app.db').as_posix()}")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # Outside the web root and never served - only read by the extractors.
     UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", ROOT / "uploads"))
     MAX_CONTENT_LENGTH = _gb("MAX_UPLOAD_GB", 32)
     ALLOWED_EXT = {".dd", ".raw", ".img", ".e01", ".ex01", ".mem", ".dmp", ".vmem"}
 
     MODELS_DIR = ROOT / "models"
     REFERENCE_DIR = ROOT / "reference_data"
-    # Clean-system reference for the memory report. Separate from reference_data/,
-    # which holds the irreplaceable training distributions and is never added to.
     BASELINE_FILE = Path(os.environ.get(
         "BASELINE_FILE", ROOT / "baselines" / "clean_win10_x64.json"))
 
-    # Disk triage caps. A 200 GB image with 40k executables would otherwise sit
-    # in the queue for a day; the report states what was skipped and why.
     MAX_PE_FILES = int(os.environ.get("MAX_PE_FILES", 500))
     MAX_PE_BYTES = int(os.environ.get("MAX_PE_MB", 64)) * 1024 ** 2
 
-    # Uploads per user per hour. A capture session runs five clean dumps, a
-    # malicious one, a disk image and retries through this in one sitting, so the
-    # old hardcoded 10 stopped work halfway. Still a limit, just a workable one.
     UPLOAD_RATE_LIMIT = os.environ.get("UPLOAD_RATE_LIMIT", "60 per hour")
 
-    # Supervisor pool only. Extraction itself goes to a ProcessPoolExecutor -
-    # lief segfaults must not take the web process with them (hard rule 20).
     EXECUTOR_TYPE = "thread"
     EXECUTOR_MAX_WORKERS = int(os.environ.get("JOB_WORKERS", 2))
     EXECUTOR_PROPAGATE_EXCEPTIONS = False
@@ -57,18 +47,7 @@ class TestConfig(Config):
     SQLALCHEMY_DATABASE_URI = "sqlite://"
     WTF_CSRF_ENABLED = False
     SECRET_KEY = "test"
-    # Low on purpose: the production limit is deliberately loose enough for a
-    # capture session, which would take too many requests to reach in a test.
     UPLOAD_RATE_LIMIT = "10 per hour"
-    # Loading two boosters plus 8 MB of reference data on every app fixture would
-    # dominate the suite. The inference tests load them once themselves.
     LOAD_MODELS = False
-    # The tables do not exist until the app fixture creates them.
     RECOVER_ORPHANS = False
-    # Uploads in tests carry a few hundred fake bytes; dispatching them would
-    # spawn a real process pool and hand volatility a file that is not a dump.
-    # The job-body tests call jobs.run directly instead.
     DISPATCH_JOBS = False
-    # Rate limiting stays on under test. Flask-Limiter's init_app returns early
-    # when disabled, so switching it off here would mean never exercising the
-    # real code path; the conftest resets the counters between tests instead.

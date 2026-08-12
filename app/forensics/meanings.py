@@ -85,23 +85,18 @@ MEMORY = {
         "unloaded or hidden after registering it."),
 }
 
-# ember GeneralFileInfo.process_raw_features, in order.
 GENERAL = ["file size", "virtual size", "debug directory present",
            "exported function count", "imported function count",
            "relocations present", "resources present",
            "authenticode signature present", "TLS callbacks present",
            "symbol count"]
 
-# ember DataDirectories._name_order; index i holds directory i//2, size when
-# even and virtual address when odd.
 DATA_DIRS = ["export table", "import table", "resource table", "exception table",
              "certificate table", "base relocation table", "debug directory",
              "architecture directory", "global pointer", "TLS directory",
              "load config table", "bound import table", "import address table",
              "delay import descriptor", "CLR runtime header"]
 
-# ember SectionInfo.process_raw_features: five named counts, then five hashed
-# blocks of 50.
 SECTION_NAMED = ["section count", "zero-length sections", "unnamed sections",
                  "readable and executable sections", "writable sections"]
 SECTION_BLOCKS = [(5, 55, "section size"), (55, 105, "section entropy"),
@@ -109,8 +104,6 @@ SECTION_BLOCKS = [(5, 55, "section size"), (55, 105, "section entropy"),
                   (155, 205, "entry-point section name"),
                   (205, 255, "entry-point section characteristics")]
 
-# ember HeaderFileInfo.process_raw_features: timestamp, five hashed blocks of
-# 10, then eleven named scalars.
 HEADER_NAMED = {0: "compile timestamp", 51: "major image version",
                 52: "minor image version", 53: "major linker version",
                 54: "minor linker version", 55: "major OS version",
@@ -145,9 +138,6 @@ GROUPS = {
 }
 
 
-# Memory features that describe something a machine *did* rather than how it is
-# configured. These drive the evidence-led memory report; service and driver
-# counts are deliberately excluded because every Windows box has hundreds.
 BEHAVIOURAL = [
     "malfind.ninjections", "malfind.commitCharge", "malfind.uniqueInjections",
     "ldrmodules.not_in_load", "ldrmodules.not_in_init", "ldrmodules.not_in_mem",

@@ -24,8 +24,6 @@ def login():
     if form.validate_on_submit():
         user = _by_name(form.username.data)
         if user is None or not user.check_password(form.password.data):
-            # Same message either way - naming which half was wrong hands an
-            # attacker a user enumeration oracle.
             log("login_failed", detail=f"username={form.username.data!r}")
             db.session.commit()
             flash("Incorrect username or password.", "danger")
@@ -42,8 +40,6 @@ def login():
         db.session.commit()
 
         nxt = request.args.get("next", "")
-        # Only ever bounce to a path on this host; an absolute URL here is an
-        # open redirect.
         if not nxt.startswith("/") or nxt.startswith("//"):
             nxt = url_for("main.jobs")
         return redirect(nxt)

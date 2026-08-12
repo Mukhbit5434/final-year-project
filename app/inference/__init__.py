@@ -40,7 +40,5 @@ def _check_versions(models_dir):
         for lib, want in meta.get("library_versions", {}).items():
             got = running.get(lib)
             if got and got != want:
-                # Loud but not fatal: a patch bump is usually harmless, a major
-                # one can change split evaluation. Someone has to look.
                 log.warning("%s %s is installed but the %s model was saved under %s",
                             lib, got, pipeline, want)

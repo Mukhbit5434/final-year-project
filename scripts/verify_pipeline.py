@@ -29,9 +29,6 @@ SAMPLES = [
     ("memory", ROOT / "sample" / "memory" / "win10_memory.raw"),
 ]
 
-# What the artifacts above produced when last verified. Drifting from these is not
-# automatically wrong - a different capture legitimately differs - but it is worth
-# understanding before accepting.
 EXPECTED = {
     "2020JimmyWilson.E01": "3,817 files examined, 13 results, 0 flagged, 60 skipped",
     "win10_memory.raw": "67 processes (ground truth 67), 21 of 55 out of distribution",
@@ -117,8 +114,6 @@ def main():
                 print(f"    ood     : {job.ood_count} of 55   "
                       f"gaps: {len(job.extraction_gaps or [])}")
             if job.plugin_seconds:
-                # Runtime varies ~2x between runs and the cause is not identified;
-                # these are what will localise it. Slowest first.
                 slow = sorted(job.plugin_seconds.items(), key=lambda kv: -kv[1])
                 print("    timings : " + "  ".join(f"{k}={v}s" for k, v in slow[:5]))
 
@@ -138,8 +133,6 @@ def main():
             print(f"    report  : {len(pdf):,} bytes, "
                   f"{len(required)} mandatory strings checked")
 
-        # Collected here because the test client below has no app context, and
-        # touching db.session from inside it raises rather than returning rows.
         job_ids = [j.id for j in db.session.query(Job).all()]
         stored_names = [j.stored_name for j in db.session.query(Job).all()]
 
@@ -164,9 +157,6 @@ def main():
           f"{'yes' if not any('reachable' in f for f in failures) else 'NO'}")
 
     if not args.keep:
-        # Windows will not unlink an open SQLite file, so drop the pooled
-        # connections first. Cleanup never decides the exit code - a leftover
-        # scratch database is untidy, not a verification failure.
         with app.app_context():
             db.session.remove()
             db.engine.dispose()

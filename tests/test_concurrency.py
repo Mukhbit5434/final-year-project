@@ -85,7 +85,6 @@ def test_concurrent_jobs_do_not_corrupt_each_others_state(file_app, file_analyst
     for job_id in ids:
         job = db.session.get(Job, job_id)
         assert job.status == COMPLETED, f"job {job_id} ended {job.status}: {job.error}"
-        # Each job must own exactly its own results - two rows per fake scan.
         assert len(job.results) == 2
         assert all(r.job_id == job_id for r in job.results)
 
@@ -93,8 +92,6 @@ def test_concurrent_jobs_do_not_corrupt_each_others_state(file_app, file_analyst
 
 
 def test_many_uploads_keep_distinct_stored_names(client, signed_in):
-    # Names are generated, not taken from the client, so concurrent uploads of
-    # identically named files must not collide on disk or in the unique index.
     for _ in range(8):
         client.post("/upload",
                     data={"artifact_file": (io.BytesIO(MBR), "same-name.dd"),

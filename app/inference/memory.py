@@ -3,17 +3,8 @@ import json
 import numpy as np
 import xgboost as xgb
 
-# The model was fitted with early stopping: 173 trees on disk, best_iteration 122.
-# Measured under xgboost 3.2.0 the inplace_predict default is all 173, and 123
-# trees flips 0 of 5,000 reference verdicts - but the default is not contractual
-# across versions, so it gets pinned rather than assumed.
 TREES = (0, 173)
 
-# Measured from the shipped model: these four carry ~98% of total gain and the
-# next feature down is 80x smaller. Three of them count installed services and
-# drivers, i.e. machine configuration rather than malware behaviour, and all four
-# are far out of range on a modern host. When they fall outside training the
-# probability is not worth reporting as a verdict - CLAUDE.md 5.4a and 9.6.
 DOMINANT = ("svcscan.nservices", "handles.nmutant",
             "svcscan.shared_process_services", "svcscan.kernel_drivers")
 
@@ -32,9 +23,6 @@ def load(models_dir, reference_dir):
     global _booster, _names, _threshold, _lo, _hi
 
     here = models_dir / "memory"
-    # Names come from the JSON list and nowhere else. The booster happens to
-    # carry semantic names internally; reading them back would defeat the point
-    # of the check (hard rule 2).
     _names = json.loads((here / "feature_list.json").read_text())
     meta = json.loads((here / "metadata.json").read_text())
     _threshold = meta["threshold"]
@@ -55,8 +43,6 @@ def load(models_dir, reference_dir):
     if not np.isfinite(ref).all():
         raise ModelError("memory_sample.npy contains NaN or Inf")
 
-    # 3 all-zero but 4 zero-variance: callbacks.ngeneric is constant at 8.0, not
-    # 0. Checking only one of the two numbers hides a real corruption.
     zeros = int(sum(1 for i in range(55) if not ref[:, i].any()))
     flat = int(sum(1 for i in range(55) if ref[:, i].std() == 0))
     if (zeros, flat) != (3, 4):

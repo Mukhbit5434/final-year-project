@@ -15,10 +15,6 @@ class LoginForm(FlaskForm):
 
 class RegisterForm(FlaskForm):
     username = StringField("Username", validators=[DataRequired(), Length(3, 64)])
-    # Mandatory as of 2026-08-10. Still no Email() format validator: wtforms'
-    # raises a bare Exception unless the separate email_validator package is
-    # installed, which would 500 the whole registration route - not worth a
-    # dependency just for format checking. DataRequired() only checks presence.
     email = StringField("Email", validators=[DataRequired(), Length(max=255)])
     password = PasswordField("Password", validators=[DataRequired(), Length(min=12)])
     confirm = PasswordField("Confirm password",
@@ -33,8 +29,6 @@ class UploadForm(FlaskForm):
         choices=[("auto", "Detect automatically"), (DISK, "Disk image"),
                  (MEMORY, "Memory dump")],
         default="auto")
-    # Free text, entirely optional - an analyst who doesn't have a case number
-    # yet, or is just trying the system, must still be able to upload normally.
     case_ref = StringField("Case / investigation reference (optional)",
                            validators=[Optional(), Length(max=128)])
     submit = SubmitField("Upload and queue")

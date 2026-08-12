@@ -19,13 +19,9 @@ def main():
               "toolchain if no wheel exists for this interpreter.", file=sys.stderr)
         return 1
 
-    # ember's setup.py pins lief==0.9.0 and will clobber the 1.0.0 install that
-    # produced the training features, so --no-deps is load-bearing. Reinstalling
-    # lief first guarantees a clean 1.0.0 regardless of what came before.
     run("uninstall", "-y", "lief")
     if run("install", "lief==1.0.0"):
         return 1
-    # Tarball rather than git+https:// so setup works without git on PATH.
     if run("install", "https://github.com/elastic/ember/archive/refs/heads/master.tar.gz",
            "--no-deps"):
         return 1

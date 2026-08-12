@@ -16,10 +16,6 @@ def _explainer(sample, names, discretize=True):
     return LimeTabularExplainer(
         sample, feature_names=list(names), class_names=CLASSES,
         discretize_continuous=discretize, mode="classification",
-        # No scaling anywhere in this project - none was used in training and
-        # adding one here would silently invalidate both the predictions and the
-        # explanations (hard rule 13). LIME standardises internally for its own
-        # local model only, which does not touch what we pass to predict.
         random_state=42)
 
 
@@ -34,9 +30,6 @@ def init(models_dir, reference_dir):
 
     try:
         _memory = _explainer(mem_sample, memory.names())
-        # The memory sample has four zero-variance columns; if the quartile
-        # discretiser degenerates on them, fall back rather than dropping the
-        # columns, which would change the feature space the model was fitted on.
         _memory.explain_instance(mem_sample[0], _proba(memory), num_features=1,
                                  num_samples=20)
     except (ValueError, IndexError) as e:
@@ -67,8 +60,6 @@ def _top(explanation, names, limit):
 
     out = []
     for index, weight in explanation.as_map()[1]:
-        # Only contributions toward the malicious class are findings; negative
-        # weights are evidence the file is benign.
         if weight <= 0:
             continue
         described = meanings.describe(names[index])

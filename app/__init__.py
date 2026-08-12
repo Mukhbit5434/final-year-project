@@ -15,8 +15,6 @@ executor = Executor()
 login = LoginManager()
 migrate = Migrate()
 csrf = CSRFProtect()
-# In-memory storage on purpose: Redis is explicitly out of scope (CLAUDE.md 10).
-# Limits reset when the process does, which is fine for a single-node lab tool.
 limiter = Limiter(key_func=get_remote_address, storage_uri="memory://")
 
 
@@ -61,7 +59,6 @@ def create_app(config=Config):
         try:
             jobs.recover_orphans(app)
         except Exception:
-            # A fresh checkout has no tables until migrations run.
             app.logger.debug("orphan recovery skipped", exc_info=True)
 
     @app.errorhandler(413)

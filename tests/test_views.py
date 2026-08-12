@@ -8,7 +8,6 @@ from app.models import COMPLETED, DISK, Job, Result
 def test_landing_is_public_and_names_the_disk_metric(client):
     body = client.get("/").get_data(as_text=True)
     assert "Automated malware analysis" in body
-    # The headline figure on a public page has to be the defensible one.
     assert "0.9940" in body
 
 

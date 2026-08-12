@@ -54,8 +54,6 @@ class FakeFuture:
         self._value = value
 
     def result(self, timeout=None):
-        # The supervisor polls with a timeout so it can copy progress across;
-        # a fake that ignores it would not exercise the real call.
         return self._value
 
 
@@ -141,7 +139,6 @@ def test_memory_job_uses_one_row_and_records_ood(app, memory_job, monkeypatch):
     assert len(job.results) == 1
     assert job.results[0].path is None
     assert job.results[0].threshold == MEM_THRESHOLD
-    # An all-zero vector is far outside a distribution whose minima are nonzero.
     assert job.ood_count > 0, "hard rule 17"
     assert job.ood_fields
 
@@ -204,8 +201,6 @@ def test_status_endpoint_is_counts_only(client, signed_in):
     assert set(body) == {"id", "status", "error", "done", "duration",
                          "stage", "progress_pct",
                          "files_scanned", "files_flagged", "ood_count", "results"}
-    # stage names the plugin or the step, never the file it is working on - the
-    # per-file table is what the detail page is for.
     assert "path" not in str(body)
 
 
@@ -238,8 +233,6 @@ def test_confirming_an_ambiguous_type_dispatches_too(client, signed_in, monkeypa
 
 
 def test_dispatch_is_disabled_under_test_config(app, disk_job):
-    # Guards the guard: if DISPATCH_JOBS ever defaults back on, uploads in the
-    # suite would spawn real process pools against fake artifacts.
     assert app.config["DISPATCH_JOBS"] is False
     jobs.start(app, disk_job.id)
     assert db.session.get(Job, disk_job.id).status == PENDING

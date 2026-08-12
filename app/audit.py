@@ -11,7 +11,6 @@ def log(action, detail=None, job=None, user=None):
 
     ip = None
     if has_request_context():
-        # No proxy in front of this by design, so remote_addr is the real client.
         ip = request.remote_addr
 
     db.session.add(AuditLog(

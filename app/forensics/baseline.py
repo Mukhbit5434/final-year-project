@@ -4,14 +4,6 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# An indicator is "elevated" only when it exceeds the highest value observed
-# across the clean-capture set for this machine, plus a small margin. Measured,
-# not chosen: the seven clean captures put psxview.not_in_pslist at 0-33 (33 from
-# a fresh boot, where psscan still sees terminated boot processes), so a
-# median-times-constant rule flagged the fresh-boot capture against its own
-# baseline - a clean false positive. The observed max is the real ceiling; the
-# margin covers capture-to-capture noise without inventing a percentile seven
-# samples cannot support.
 MARGIN = 1.2
 
 _data = None
@@ -112,11 +104,6 @@ def phrase(feature, value):
     return f"{value:g} observed - within {span} - consistent with this machine"
 
 
-# How a machine is *configured*, not what it did. These are reported as context
-# and are structurally incapable of reaching severity: severity counts high-risk
-# MITRE techniques matched from meanings.BEHAVIOURAL, and no tag maps to any of
-# these features (see the removal note in mitre.py). An elevated service count
-# means software was installed, which is not a technique.
 VOLUMETRIC = [
     "svcscan.nservices", "svcscan.kernel_drivers", "svcscan.fs_drivers",
     "svcscan.shared_process_services", "svcscan.nactive",

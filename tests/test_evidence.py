@@ -6,9 +6,6 @@ from app.models import MEMORY, Job
 
 
 COLLECTED = {
-    # PID/PPID/name chain deliberately covering every PID the other plugins'
-    # rows below reference, plus one (PID 4's own PPID, 0) that pslist never
-    # enumerates at all - the real shape of "System"'s real parent on Windows.
     "pslist": [
         {"PID": 4, "PPID": 0, "ImageFileName": "System"},
         {"PID": 660, "PPID": 4, "ImageFileName": "explorer.exe"},
@@ -51,7 +48,6 @@ COLLECTED = {
 def test_injected_regions_carry_process_address_and_size():
     ev = ex.evidence(COLLECTED)
     first = ev["injected_regions"][0]
-    # Largest first: a 1 MB RWX region outranks a single 4 KB page.
     assert first["process"] == "explorer.exe"
     assert first["size"] == 0x100000
     assert first["start"] == "0x1000"
@@ -94,17 +90,11 @@ def test_parent_process_is_resolved_for_named_processes():
 
 
 def test_parent_is_unresolved_but_present_for_a_pid_pslist_never_saw():
-    # PID 4's own real PPID is 0 - the System Idle Process, which pslist does
-    # not enumerate as a row of its own. The parent PID is still known; only
-    # its name cannot be filled in, and that must read as unresolved, not as
-    # "no parent at all".
     mods = {d["pid"]: d["parent"] for d in ex.evidence(COLLECTED)["hidden_modules"]}
     assert mods[4] == {"pid": 0, "name": None}
 
 
 def test_parent_is_none_with_no_pslist_data_at_all():
-    # The exact shape every fixture in this file used before parent
-    # resolution was added - must degrade to "no parent info", not crash.
     ev = ex.evidence({"malfind": COLLECTED["malfind"]})
     assert all(d["parent"] is None for d in ev["injected_regions"])
 

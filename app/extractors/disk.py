@@ -11,7 +11,6 @@ SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 SECTOR = 512
 READ_CHUNK = 1024 * 1024
 
-# Enough for the DOS header plus the e_lfanew pointer.
 HEADER_PEEK = 0x40
 
 EWF_EXT = {".e01", ".ex01", ".s01"}
@@ -73,7 +72,6 @@ def filesystems(img):
     try:
         vol = pytsk3.Volume_Info(img)
     except OSError:
-        # No partition table: a bare filesystem image starting at offset 0.
         try:
             pytsk3.FS_Info(img, offset=0)
         except OSError as e:
@@ -81,7 +79,6 @@ def filesystems(img):
         return [(0, "p0")]
 
     for part in vol:
-        # flags bit 0 is TSK_VS_PART_FLAG_ALLOC; skip table/unallocated entries.
         if not part.flags & 0x01 or part.len <= 2048:
             continue
         offset = part.start * SECTOR
@@ -170,8 +167,6 @@ def walk(fs, part_offset, label, max_bytes, include_unallocated=True):
             path = f"{prefix}/{name}"
 
             if meta is None:
-                # Deleted name whose MFT record has already been reused. The name
-                # survives in the parent index, nothing else does.
                 yield {"skip": {"path": f"{label}{path}",
                                 "reason": "deleted entry, metadata no longer recoverable"}}
                 continue

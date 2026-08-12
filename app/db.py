@@ -9,10 +9,6 @@ db = SQLAlchemy()
 
 @event.listens_for(Engine, "connect")
 def _sqlite_pragmas(conn, _rec):
-    # Extraction jobs run for 15-45 minutes. Under the default rollback journal
-    # a single writer blocks every reader for that entire window and the web
-    # thread starts throwing "database is locked". WAL plus a real busy timeout
-    # is what makes SQLite survivable here at all.
     if isinstance(conn, sqlite3.Connection):
         cur = conn.cursor()
         cur.execute("PRAGMA journal_mode=WAL")

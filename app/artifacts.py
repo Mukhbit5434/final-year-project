@@ -6,9 +6,6 @@ from .models import DISK, MEMORY
 
 CHUNK = 4 * 1024 * 1024
 
-# Positive identification only. There is no signature that says "this is a raw
-# memory dump" - .raw/.mem/.vmem carry nothing at all - so failing to find a disk
-# signature is not evidence of memory. Anything unmatched goes to the analyst.
 EWF = b"EVF\x09\x0d\x0a\xff\x00"
 EWF2 = b"EVF2\x0d\x0a\x81\x00"
 CRASHDUMPS = (b"PAGEDUMP", b"PAGEDU64", b"PAGEDUMP64")
@@ -43,8 +40,6 @@ def store(stream, dest_dir, suffix):
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    # Our own name, never the client's: this is what keeps a crafted filename
-    # from escaping the upload directory.
     name = f"{uuid.uuid4().hex}{suffix}"
     path = dest_dir / name
 

@@ -11,8 +11,6 @@ def app():
     app = create_app(TestConfig)
     with app.app_context():
         _db.create_all()
-        # The limiter is a module-level singleton with in-memory storage, so its
-        # counters would otherwise leak from one test into the next.
         limiter.reset()
         yield app
         _db.session.remove()
