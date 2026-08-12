@@ -80,16 +80,6 @@
           {{ results[0].findings|length }} forensic indicator(s) observed in this capture.
           {{ results[0].severity_note or '' }}
         </p>
-        {% if job.ood_count is not none %}
-        <div class="fx-note fx-note-warn">
-          <strong>Model verdict is secondary for memory captures.</strong>
-          {{ job.ood_count }} of 55 features fall outside the range observed in the
-          training data, so the model is extrapolating and its probability
-          ({{ '%.4f'|format(results[0].probability) }}) is reported for reference only.
-          The findings below are Volatility's direct measurements of this dump and do not
-          depend on it.
-        </div>
-        {% endif %}
       {% else %}
         <p class="mb-0">
           {{ results[0].severity_note or 'No indicator categories matched.' }}
@@ -262,12 +252,6 @@
 
 {% elif job.done %}
   <div class="card"><div class="fx-empty">No results recorded for this job.</div></div>
-{% endif %}
-
-{% if job.volumetric and job.volumetric.note %}
-<div class="fx-note mt-4">
-  <strong>Configuration context.</strong> {{ job.volumetric.note }}
-</div>
 {% endif %}
 
 {% if evidence %}

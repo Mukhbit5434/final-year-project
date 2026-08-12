@@ -1,6 +1,6 @@
 # STATUS — where the project is right now
 
-Last updated 2026-08-10. `CLAUDE.md` is the spec and the binding rules; this file is the
+Last updated 2026-08-11. `CLAUDE.md` is the spec and the binding rules; this file is the
 handoff state. If the two disagree, CLAUDE.md wins on *what to build* and this file wins
 on *what exists*.
 
@@ -56,6 +56,138 @@ genuinely reflects the merge, and `verify_pipeline.py` was re-run on `master` an
 documented "varies ~2x, cause not identified" pattern relative to the pre-merge branch
 run's 25s/391s on the same two artifacts). The feature branch still exists, pointing at
 the same commit as `master`; safe to delete whenever, nothing is only on the branch.
+
+**Fifth §18 pass, 2026-08-11 — three display strings removed, display-only, by explicit
+decision.** The memory pipeline's "Model applicability" limitations paragraph (the OOD-count
+sentence plus the SMOTE/dataset-saturation caveat) and the "Reference environment and scope"
+paragraph (the Windows-10-x64 scope statement) no longer render in the PDF or on the job-detail
+page — `report.REQUIRED_MEMORY` is now `[]`. Reason: the user will present the SMOTE finding
+verbally at viva, from the ICISSP 2022 paper, rather than having the system state it; this is a
+display decision, not a retraction of the finding (Section 2 above is unchanged and still
+correct). Full detail, including exactly which of the four items the fourth pass had left
+"pending" were and weren't touched this time, is in CLAUDE.md §18's fifth pass.
+
+**Confirmed unchanged, not just claimed:** the OOD gate (`memory.ood()`/`dominant_ood()`),
+hard rule 17 (the bare OOD count still ships, now only via Verdict Detail's "N of 55" and the
+executive summary — both pre-existing, untouched code), hard rule 22's evidence-before-verdict
+ordering, and severity/baseline computation are all byte-for-byte untouched — this pass edited
+exactly `app/report.py`'s `limitations()` function and its three now-empty/removed constants,
+plus two test assertions that targeted the removed strings. Re-verified three ways: `pytest
+tests -q` → **249 passed**, 0 failed (same count as before — two tests edited in place, none
+added or removed); `verify_pipeline.py` → **all checks passed** on a fresh run (disk 27s/13
+results/0 flagged/60 skipped, memory 388s/67 processes matching ground truth/OOD 21 of 55,
+severity High with "model score withheld from severity: capture is out of distribution" —
+matching the script's own long-pinned `EXPECTED` values exactly); and job 3 — the real
+`malicious_1.raw` capture's actual stored result, unchanged since 2026-08-04 — re-rendered
+under the new code as both a PDF and the live `/jobs/3` page (HTTP 200 both), still reading
+**Critical**, still carrying `T1055`/`T1014`, still showing OOD 27 of 55, with all three
+removed strings confirmed absent from both renders.
+
+**Known gap, left open on purpose:** `docs/learning/12_reporting.md` and
+`docs/learning/99_glue_it_together.md` both still quote and explain the now-deleted
+`SATURATION_CAVEAT`/`SCOPE_STATEMENT` code at length. Out of scope for this pass (only
+CLAUDE.md and STATUS.md were asked for) — flagged, not fixed. Revisit only if asked.
+
+**Sixth §18 pass, 2026-08-11 (same day) — the raw OOD number removed from every
+remaining display, the Appendix's out-of-range feature list removed, and a real visual
+design pass on the report.** Same discipline, same-day follow-up: the executive summary
+sentence, the Verdict Detail table row, and the job-detail hero note all used to print
+the actual "N of 55" figure; all three now either drop the row (Verdict Detail, since a
+labelled row with no value makes no sense) or reword to keep the qualitative warning
+without the digit (the other two). The PDF Appendix's "Features outside the training
+range" subsection — the literal list of out-of-range feature names — is deleted outright.
+`report.py` also got a real palette/typography/table system for the first time (named
+colour tokens shared with the web dashboard's own severity scale, a shared section-divider
+helper, severity-coloured headline text, zebra-striped tables) — styling only, no content
+reordered beyond the four removals. Full detail, string by string, in CLAUDE.md §18's
+sixth pass.
+
+**Confirmed unchanged, same standard as every pass:** `memory.ood()`/`dominant_ood()`,
+`job.ood_count` (still stored, still gates the "for reference only" sentence), severity/
+baseline computation, and hard rule 22's ordering are all untouched. Re-verified three
+ways: `pytest tests -q` → **249 passed**, 0 failed (two tests rewritten to assert the
+number's *absence*, none added/removed); `scripts/verify_pipeline.py` → **all checks
+passed** fresh (disk 11s/13 results/0 flagged/60 skipped, memory 165s/67 processes
+matching ground truth/OOD 21 of 55/severity High — both matching `EXPECTED` exactly;
+PDF sizes grew slightly from the added styling, disk 11,561→13,265 bytes, memory
+14,973→16,455 bytes, expected and not a content change); and job 3 (`malicious_1.raw`'s
+real stored result) re-rendered under the new code as both PDF and the live `/jobs/3`
+page (HTTP 200 both) — still **Critical**, still `T1055`/`T1014`, with `"27 of 55"`,
+`"of 55"`, and both Appendix/table-row headings confirmed absent from both renders while
+every other expected string survived.
+
+**The known gap noted above is now fixed, not just flagged.** `docs/learning/12_reporting.md`
+was rewritten to match the current `report.py`; `docs/learning/99_glue_it_together.md`'s
+two relevant passages (Parts 9 and 10) were corrected to describe the current report
+content rather than the version with five mandatory memory substrings.
+
+**Seventh §18 pass, 2026-08-11 (same day) — a second, explicit sweep removing every
+remaining caveat/limitation/unreliability display for memory, plus the whole Appendix
+section (both pipelines), on user instruction after the sixth pass turned out to have
+missed several.** A full re-grep of `report.py` and every template found: the job-detail
+hero box (sixth pass reworded it, didn't remove it), the Verdict Detail intro sentence
+("secondary triage signal"), the "Extraction gaps" and "Baseline for the observed
+indicators" limitations sections, the "Configuration context" box, the whole Appendix
+(not just the out-of-range list already removed), and — flagged separately since it
+lives outside `report.py`/templates — the "model score withheld…" clause inside
+`severity_note`, generated in `app/forensics/severity.py`. All removed, one file
+(`severity.py`) touched surgically: only the `reason.append(...)` call that built the
+sentence was deleted; the branch never touched the actual severity `level`. Full
+string-by-string detail in CLAUDE.md §18's seventh pass.
+
+**Verified three ways, same standard as every pass:** `pytest tests -q` → **249 passed**
+(every affected test rewritten to assert absence rather than deleted — see CLAUDE.md
+for the full list); `scripts/verify_pipeline.py` → **all checks passed** fresh (disk
+11s, memory 173s/67 processes/OOD 21 of 55/severity High, both matching `EXPECTED`
+exactly) — critically, its freshly-computed `severity_note` for the memory run reads
+*"1 high-risk indicator category elevated against the clean-system baseline; 2
+indicators elevated against baseline"* with **no "withheld" clause**, proving the
+`severity.py` fix works on a real, newly-run job, not just in a unit test; and job 3
+(`malicious_1.raw`) re-rendered as both PDF and the live `/jobs/3` page — still
+**Critical**, still `T1055`/`T1014`, hero box confirmed structurally gone (not just
+hidden — the HTML has nothing between the severity line and the findings paragraph).
+
+**One honest exception, surfaced rather than hidden:** job 3's own stored
+`Result.severity_note` (computed 2026-08-04, before this fix existed) still literally
+contains "model score withheld from severity" in both re-rendered surfaces, because
+`severity_note` is a **stored** field, not recomputed on render. This is expected given
+the project's no-mutation evidence-retention policy (§10), not a bug in the fix — but
+it means job 3's own displayed text isn't fully scrubbed unless someone explicitly
+decides to recompute and overwrite historical stored results, which is a data decision,
+not a display one, and wasn't asked for this round.
+
+**Resolved the same day, on explicit user instruction: job 3's stored `severity_note`
+was deliberately overwritten to match the new behaviour.** The user chose consistency
+over preserving the original stored text, specifically because they planned to
+re-upload `malicious_1.raw` as a fresh job afterward to re-verify the whole pipeline
+end to end anyway — so losing the old note's exact original wording on job 3
+specifically was judged not to matter. **Exactly one field was touched, nothing else:**
+```
+before: "2 high-risk indicator categories elevated against the clean-system baseline; "
+        "6 indicators elevated against baseline; model score withheld from severity: "
+        "capture is out of distribution"
+after:  "2 high-risk indicator categories elevated against the clean-system baseline; "
+        "6 indicators elevated against baseline"
+```
+Not recomputed from scratch through `severity.for_memory()` — the original 55-value
+feature vector was never persisted (only derived locators/counts are stored), so a
+fresh call couldn't be reconstructed faithfully. Instead the exact trailing clause
+`severity.py`'s one deleted `reason.append(...)` call used to add was stripped from the
+stored string — mathematically identical to what a fresh computation would produce,
+since nothing else in `for_memory()`'s reasoning for this job changed. Verified by
+reading every other field back from a fresh DB query before and after (severity
+**Critical**, probability `0.47403684258461`, all nine findings/MITRE tags, `ood_count`
+27, `extraction_gaps` length 14, evidence totals, `volumetric` note) — **byte-for-byte
+identical, confirmed programmatically, not by eye.** Re-rendered both the PDF and the
+live `/jobs/3` page afterward: "withheld" is now genuinely absent from both, alongside
+everything removed in the seventh pass above. `pytest tests -q` → 249 passed and
+`scripts/verify_pipeline.py` → all checks passed, both re-run after the edit to confirm
+a direct database write didn't disturb anything else.
+
+**One item in the "proposed but not built" list below is now stale:** "re-adding a
+library-version table to the report Appendix" no longer has an Appendix to add it to.
+Left in the list rather than silently dropped; revisit only alongside a decision about
+whether an Appendix section should exist at all going forward.
 
 **Proposed alongside this pass but not built — genuinely open, not just forgotten:**
 re-adding a (leaner) library-version table to the report Appendix, needs explicit sign-off
@@ -126,7 +258,7 @@ recorded at proposal time, is in CLAUDE.md §18's fourth pass, last paragraph.
    (thresholds, feature-name sourcing, no scaling, MITRE-ID bans, etc.), the mandatory
    limitations section (§12, enforced by `report.REQUIRED_*` and tested against the
    *rendered* PDF), and hard rule 22 (memory reports lead with observations, never the
-   probability). Re-run `pytest tests -q` after any change — 232 must still pass, and the
+   probability). Re-run `pytest tests -q` after any change — 249 must still pass, and the
    scrambled-column / mandatory-string tests are exactly the ones that catch a UI or report
    change breaking something structural.
 

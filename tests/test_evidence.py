@@ -242,16 +242,17 @@ def test_parent_process_column_reaches_the_job_page(client, signed_in, db, analy
 
 
 def test_memory_report_sections_are_numbered_without_a_duplicate(db, analyst):
-    """The evidence section is 5, so Scope and Appendix must renumber to 6 and 7
-    rather than colliding with a second 5."""
+    """The evidence section is 5, so Scope and limitations must renumber to 6
+    rather than colliding with a second 5. There is no Appendix section any more
+    (CLAUDE.md §18, seventh pass) - Scope and limitations is the last section."""
     from tests.test_report import text_of
 
     job = _job(db, analyst, ex.evidence(COLLECTED))
     body = text_of(report.render(job, compress=False))
     assert "5. Where these indicators were observed" in body
     assert "6. Scope and limitations" in body
-    assert "7. Appendix" in body
     assert "5. Scope and limitations" not in body
+    assert "Appendix" not in body
 
 
 def test_memory_report_without_evidence_keeps_scope_at_five(db, analyst):
@@ -260,7 +261,7 @@ def test_memory_report_without_evidence_keeps_scope_at_five(db, analyst):
     job = _job(db, analyst, None)
     body = text_of(report.render(job, compress=False))
     assert "5. Scope and limitations" in body
-    assert "6. Appendix" in body
+    assert "Appendix" not in body
 
 
 def test_severity_never_defaults_to_low_when_it_was_not_computed(db, analyst):

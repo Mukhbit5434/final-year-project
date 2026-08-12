@@ -89,11 +89,14 @@ def test_a_disk_report_renders(db, analyst):
     assert len(pdf) > 3000
 
 
-def test_all_seven_sections_are_present(db, analyst):
+def test_all_five_sections_are_present(db, analyst):
+    """There were six, including an Appendix, before CLAUDE.md §18's seventh pass
+    removed it entirely - Scope and limitations is now the last section."""
     body = text_of(render(disk_job(db, analyst)))
     for heading in ("Chain of custody", "Executive summary", "Verdict detail",
-                    "Findings", "Scope and limitations", "Appendix"):
+                    "Findings", "Scope and limitations"):
         assert heading in body, heading
+    assert "Appendix" not in body
 
 
 def test_mandatory_limitation_strings_survive_into_a_disk_report(db, analyst):
@@ -125,24 +128,28 @@ def test_the_limitations_section_renders_when_nothing_was_skipped(db, analyst):
 
 def test_a_memory_report_does_not_headline_the_probability(db, analyst):
     """Hard rule 22. The executive summary leads with observations; the score
-    appears later, in verdict detail, carrying the OOD count with it."""
-    sections = report.limitations(memory_job(db, analyst))
-    headings = [h for h, _ in sections]
-    assert "Model applicability" in headings
-
+    appears later, in verdict detail. The "secondary triage signal" sentence that
+    used to carry this in words is gone as of CLAUDE.md §18's seventh pass - the
+    ordering itself, not a sentence describing it, is what's actually asserted."""
     body = text_of(render(memory_job(db, analyst)))
     summary_at = body.index("Executive summary")
     verdict_at = body.index("Verdict detail")
     assert body.index("0.0084") > summary_at
-    assert body.index("secondary triage signal") > summary_at
     assert verdict_at < body.index("0.0084")
+    assert "secondary triage signal" not in body
 
 
-def test_memory_limitations_split_missing_from_inferred(db, analyst):
-    sections = dict(report.limitations(memory_job(db, analyst)))
-    gaps = " ".join(sections["Extraction gaps"])
-    assert "could not be produced by Volatility 3" in gaps
-    assert "reconstructed from the reference data" in gaps
+def test_extraction_gaps_are_stored_but_no_longer_displayed(db, analyst):
+    """CLAUDE.md §18, seventh pass: the "Extraction gaps" limitations section was
+    removed. `job.extraction_gaps` is still populated by the real extractor
+    (app/extractors/memory.py) on every run regardless of what the report shows."""
+    job = memory_job(db, analyst)
+    assert job.extraction_gaps, "still recorded internally, independent of display"
+
+    headings = [h for h, _ in report.limitations(job)]
+    assert "Extraction gaps" not in headings
+    assert "Baseline for the observed indicators" not in headings
+    assert headings == ["Files not examined"]
 
 
 def test_disk_reports_do_not_claim_memory_caveats(db, analyst):
@@ -151,9 +158,19 @@ def test_disk_reports_do_not_claim_memory_caveats(db, analyst):
     assert "Model applicability" not in headings
 
 
-def test_the_ood_count_appears_in_every_memory_report(db, analyst):
-    body = text_of(render(memory_job(db, analyst)))
-    assert "21 out of the 55 features" in body, "hard rule 17"
+def test_the_ood_count_is_computed_but_no_longer_displayed(db, analyst):
+    """Hard rule 17 requires the count be computed and stored on every memory job -
+    it does not require the number, or any sentence about it, to appear in the
+    report. CLAUDE.md §18's sixth pass removed the digit; the seventh pass removed
+    the surrounding sentence entirely (it lived only in the executive summary by
+    that point)."""
+    job = memory_job(db, analyst)
+    assert job.ood_count == 21, "hard rule 17: the gate still computes this internally"
+
+    body = text_of(render(job))
+    assert "21 of 55" not in body
+    assert "of 55" not in body
+    assert "falls outside the range it was trained on" not in body
 
 
 def test_report_route_requires_ownership(client, signed_in, db, analyst):

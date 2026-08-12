@@ -67,7 +67,12 @@ def test_volumetric_features_cannot_reach_severity(loaded):
     assert mitre.match(list(baseline.VOLUMETRIC), "memory") == []
 
 
-def test_the_note_reaches_the_pdf_and_the_page(client, signed_in, db, analyst):
+def test_the_note_is_stored_but_no_longer_displayed(client, signed_in, db, analyst):
+    """CLAUDE.md §18, seventh pass: the "Configuration context" box was removed from
+    both the PDF and the web page. `job.volumetric["note"]` is still computed and
+    stored on every real memory job exactly as before (baseline.volumetric_context()
+    is untouched) - this just confirms the display is genuinely gone, not that the
+    computation stopped."""
     from tests.test_report import text_of
 
     note = ("Configuration counts are elevated (service and driver count 2400 against "
@@ -80,7 +85,10 @@ def test_the_note_reaches_the_pdf_and_the_page(client, signed_in, db, analyst):
     db.session.add(job)
     db.session.commit()
 
-    assert "consistent with additional software" in text_of(
+    assert job.volumetric["note"] == note, "still computed and stored, unaffected"
+
+    assert "consistent with additional software" not in text_of(
         report.render(job, compress=False))
-    assert "Configuration context" in client.get(
-        f"/jobs/{job.id}").get_data(as_text=True)
+    body = client.get(f"/jobs/{job.id}").get_data(as_text=True)
+    assert "Configuration context" not in body
+    assert "consistent with additional software" not in body

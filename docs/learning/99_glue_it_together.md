@@ -272,8 +272,17 @@ meaning and MITRE tag. The evidence section (§10's `evidence()`, §12's
 the terminated `conhost.exe` processes' real exit timestamps — an analyst
 could go pivot directly on either. `{% include "_limitations.html" %}`
 (§13) loops over the exact same `limitations(job)` list, showing the
-extraction gaps, the out-of-distribution count, the SMOTE/saturation
-caveat, and the reference-environment scope statement (§12).
+extraction gaps (split into missing vs. inferred) and the baseline note
+(§12). As of CLAUDE.md §18's fifth and sixth passes (2026-08-11), that list
+no longer includes an out-of-distribution sentence, a SMOTE/saturation
+caveat, or a reference-environment scope statement — all three were
+deliberately removed from the report's displayed text (the reasoning is
+now presented verbally at viva instead), and the sixth pass went further,
+removing the raw out-of-distribution *number* from every other place it
+used to appear too (the executive summary, verdict detail, and this same
+hero note). `job.ood_count` is still computed and stored on every memory
+job exactly as before (hard rule 17) — only what gets printed about it
+changed.
 
 ## Part 10 — The PDF
 
@@ -289,14 +298,18 @@ in its very first sentence, that this report leads with observations, not
 a model score, and names the two matched technique categories; verdict
 detail shows the real 0.474 probability, but only in section 3, after the
 executive summary already led with evidence, with the explicit "secondary
-triage signal" sentence printed directly into the PDF itself; findings and
-per-process evidence sections repeat, byte-for-byte in wording, the exact
-same `evidence_rows()`/content the web page already showed; and the
-mandatory "Scope and limitations" section — checked by `REQUIRED_ALWAYS`
-and `REQUIRED_MEMORY` (§12), and, independently, by `verify_pipeline.py`
-(§14) against real rendered PDFs exactly like this one — carries every one
-of the five required substrings, because nothing about this pipeline ever
-gives it a reason not to.
+triage signal" sentence printed directly into the PDF itself (no longer
+paired with the out-of-training-range number that table row used to carry
+— removed in the same sixth pass, §12); findings and per-process evidence
+sections repeat, byte-for-byte in wording, the exact same
+`evidence_rows()`/content the web page already showed; and the mandatory
+"Scope and limitations" section — checked by `REQUIRED_ALWAYS` (§12), and,
+independently, by `verify_pipeline.py` (§14) against real rendered PDFs
+exactly like this one — still renders unconditionally with real content
+("Files not examined," and for memory jobs "Extraction gaps" and "Baseline
+for the observed indicators"), even though `REQUIRED_MEMORY` itself is now
+empty — CLAUDE.md §18 records exactly which substrings used to be pinned
+there and why each was later removed, deliberately, not by accident.
 
 ## What this trace actually proves
 

@@ -10,8 +10,37 @@ from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import (HRFlowable, KeepTogether, PageBreak, Paragraph,
                                 SimpleDocTemplate, Spacer, Table, TableStyle)
 
-from .forensics import baseline
 from .models import DISK, MEMORY, SEVERITY_ORDER
+
+# One small palette, shared by every heading, rule and table in the document, so the
+# PDF reads as one designed thing rather than a stack of ad-hoc greys. Chosen to sit in
+# the same hue family as the web dashboard's own severity scale (app/static/app.css's
+# --fx-critical/high/medium/low), deepened for legibility on white paper rather than
+# the dashboard's dark background - same system, adapted ground.
+INK_HEX = "#1b2430"        # body text
+INK_SOFT_HEX = "#5c6b7a"   # muted labels, captions, footer
+ACCENT_HEX = "#2c5a82"     # section headings
+RULE_HEX = "#b9c6d3"       # section dividers - a tint of the accent, not full strength
+PANEL_HEX = "#eef1f4"      # table header fill
+LINE_HEX = "#d7dde3"       # table grid / kv row dividers
+ZEBRA_HEX = "#f7f9fb"      # alternate row tint on multi-row tables
+
+INK = colors.HexColor(INK_HEX)
+INK_SOFT = colors.HexColor(INK_SOFT_HEX)
+ACCENT = colors.HexColor(ACCENT_HEX)
+RULE = colors.HexColor(RULE_HEX)
+PANEL = colors.HexColor(PANEL_HEX)
+LINE = colors.HexColor(LINE_HEX)
+ZEBRA = colors.HexColor(ZEBRA_HEX)
+
+SEVERITY_HEX = {
+    "Critical": "#b0273f", "High": "#b8650b", "Medium": "#1d7690", "Low": "#5c6b7a",
+}
+
+
+def _sev_hex(severity):
+    return SEVERITY_HEX.get(severity, INK_HEX)
+
 
 # Strings that must survive into every report of the relevant kind. The test suite
 # asserts each one, so removing a limitation from the renderer fails the build
@@ -19,39 +48,35 @@ from .models import DISK, MEMORY, SEVERITY_ORDER
 # Trimmed 2026-08-06 (CLAUDE.md §18): the triage-note, lief-version caveat and MITRE
 # disclaimer paragraphs are no longer emitted, so their required substrings dropped
 # out of these lists along with them.
+# Trimmed further 2026-08-11 (CLAUDE.md §18, fifth pass): the memory pipeline's
+# "Model applicability" limitations paragraph (OOD explanation + the SMOTE/saturation
+# caveat) and the "Reference environment and scope" paragraph are no longer rendered -
+# an analyst-facing display decision, not a change to the underlying gates.
+# Trimmed further still, same day (sixth pass): the raw OOD number and the Appendix's
+# out-of-range feature list.
+# Trimmed further still, same day (seventh pass): every remaining caveat/limitation
+# display for memory - the job-detail hero box, the "Extraction gaps" and "Baseline for
+# the observed indicators" limitations sections, the "Configuration context" box, the
+# whole Appendix section, and the "model score withheld..." clause inside severity_note
+# (app/forensics/severity.py). None of the underlying computations changed - ood_count,
+# extraction_gaps, baseline comparisons and severity levels are all still computed and
+# stored exactly as before; only what gets printed about them did.
 REQUIRED_ALWAYS = [
     "Scope and limitations",
 ]
 REQUIRED_DISK = []
-REQUIRED_MEMORY = [
-    "out of the 55 features",
-    "unusually high separability",
-    "SMOTE",
-    "controlled reference environment",
-    "per-machine clean baseline",
-]
-
-SATURATION_CAVEAT = (
-    "The benchmark dataset behind the memory model, CIC-MalMem-2022, shows unusually "
-    "high separability: 21 of its 55 features individually exceed 0.95 AUC. Its benign "
-    "half was balanced using SMOTE oversampling, so a substantial part of it is "
-    "interpolated rather than captured, and interpolated points cannot exceed the range "
-    "of the samples they were drawn from. Reported benchmark performance should be read "
-    "in that light, and real-world performance may differ substantially.")
-
-# CLAUDE.md 11.1. Memory severity is calibrated against one reference machine's own
-# known-good baseline, so reading a memory report against any other machine is misuse.
-# Mandatory rather than conditional: the fragments asserted in REQUIRED_MEMORY carry no
-# parentheses, because verify_pipeline.py matches the raw PDF stream where "(" is escaped.
-SCOPE_STATEMENT = (
-    "Demonstrated on a controlled reference environment (Windows 10 x64). Severity is "
-    "calibrated against a per-machine clean baseline and is valid for that machine. "
-    "Cross-machine deployment would require a per-machine baseline established in "
-    "advance.")
+REQUIRED_MEMORY = []
 
 
 def limitations(job):
-    """-> [(heading, [paragraph, ...])], identical for the PDF and the dashboard."""
+    """-> [(heading, [paragraph, ...])], identical for the PDF and the dashboard.
+
+    Trimmed to "Files not examined" only as of CLAUDE.md §18's seventh pass
+    (2026-08-11): the memory-only "Extraction gaps" and "Baseline for the observed
+    indicators" sections were removed from display. `job.extraction_gaps` is still
+    populated by the extractor on every real run (app/extractors/memory.py) and
+    `baseline.NOTE` still exists - this function just no longer surfaces either.
+    """
     out = []
 
     skipped = job.skipped or []
@@ -67,38 +92,6 @@ def limitations(job):
     else:
         out.append(("Files not examined", ["None recorded."]))
 
-    if job.artifact == MEMORY:
-        gaps = job.extraction_gaps or []
-        missing = [g for g in gaps if g["confidence"] == "missing"]
-        inferred = [g for g in gaps if g["confidence"] == "inferred"]
-
-        lines = []
-        if missing:
-            lines.append(
-                f"{len(missing)} feature(s) could not be produced by Volatility 3 at all "
-                "and were emitted as 0.0 rather than estimated:")
-            lines += [f"{g['field']} — {g['reason']}" for g in missing]
-        else:
-            lines.append("No features were missing.")
-        if inferred:
-            lines.append(
-                f"{len(inferred)} further feature(s) carry a value whose derivation was "
-                "reconstructed from the reference data rather than documented by the "
-                "dataset authors:")
-            lines += [f"{g['field']} — {g['reason']}" for g in inferred]
-        out.append(("Extraction gaps", lines))
-
-        ood = job.ood_count
-        if ood is not None:
-            out.append(("Model applicability", [
-                f"{ood} out of the 55 features fall outside the range observed in the "
-                "training data. On those inputs the model is extrapolating and its "
-                "probability should be treated as low-confidence. The findings above "
-                "are direct measurements of this capture and do not depend on it.",
-                SATURATION_CAVEAT]))
-        out.append(("Baseline for the observed indicators", [baseline.NOTE]))
-        out.append(("Reference environment and scope", [SCOPE_STATEMENT]))
-
     return out
 
 
@@ -108,9 +101,10 @@ def _parent_cell(d):
     extractors/memory.py:_parent(), which is where the actual lookup happens.
 
     Plain ASCII only, deliberately. ReportLab escapes literal '(' and ')'
-    inside a PDF's text streams (SCOPE_STATEMENT above hit that trap first),
-    and - measured while building this function - it octal-escapes the em
-    dash too (a non-WinAnsi-trivial byte). Both break any check that scans
+    inside a PDF's text streams (a mandatory limitations string hit this trap
+    first, back when the scope statement was still rendered - see CLAUDE.md
+    §18), and - measured while building this function - it octal-escapes the
+    em dash too (a non-WinAnsi-trivial byte). Both break any check that scans
     the raw stream for an exact substring (verify_pipeline.py does exactly
     that). A comma has neither problem.
     """
@@ -166,32 +160,61 @@ def evidence_rows(job):
 def _styles():
     base = getSampleStyleSheet()
     return {
-        "title": ParagraphStyle("t", parent=base["Title"], fontSize=17, spaceAfter=2),
+        "title": ParagraphStyle("t", parent=base["Title"], fontName="Helvetica-Bold",
+                                fontSize=21, leading=24, textColor=INK, spaceAfter=3),
         "sub": ParagraphStyle("s", parent=base["Normal"], fontSize=9,
-                              textColor=colors.HexColor("#666666"), spaceAfter=10),
-        "h": ParagraphStyle("h", parent=base["Heading2"], fontSize=12, spaceBefore=12,
-                            spaceAfter=5),
-        "h3": ParagraphStyle("h3", parent=base["Heading3"], fontSize=10, spaceBefore=8,
-                             spaceAfter=3),
-        "p": ParagraphStyle("p", parent=base["Normal"], fontSize=8.6, leading=12,
-                            alignment=TA_LEFT, spaceAfter=5),
-        "small": ParagraphStyle("sm", parent=base["Normal"], fontSize=7.4, leading=10,
-                                textColor=colors.HexColor("#444444")),
-        "mono": ParagraphStyle("m", parent=base["Normal"], fontName="Courier",
-                               fontSize=7.2, leading=9),
+                              textColor=INK_SOFT, spaceAfter=4),
+        "h": ParagraphStyle("h", parent=base["Heading2"], fontName="Helvetica-Bold",
+                            fontSize=13, leading=16, textColor=ACCENT,
+                            spaceBefore=0, spaceAfter=7),
+        "h3": ParagraphStyle("h3", parent=base["Heading3"], fontName="Helvetica-Bold",
+                             fontSize=10.5, leading=13, textColor=INK,
+                             spaceBefore=9, spaceAfter=4),
+        "p": ParagraphStyle("p", parent=base["Normal"], fontSize=9, leading=13,
+                            textColor=INK, alignment=TA_LEFT, spaceAfter=6),
+        "small": ParagraphStyle("sm", parent=base["Normal"], fontSize=7.6, leading=10.5,
+                                textColor=INK),
+        "label": ParagraphStyle("lb", parent=base["Normal"], fontSize=7.6, leading=10.5,
+                                textColor=INK_SOFT),
     }
 
 
+def _rule(flow):
+    """One consistent divider ahead of every numbered section heading, so the document
+    reads as a designed sequence of sections rather than headings dropped in at
+    whatever spacing a paragraph style happens to leave."""
+    flow.append(HRFlowable(width="100%", thickness=0.75, spaceBefore=14, spaceAfter=9,
+                           color=RULE))
+
+
 def _kv(rows, st, widths=(38 * mm, 122 * mm)):
-    data = [[Paragraph(f"<b>{k}</b>", st["small"]), Paragraph(str(v), st["small"])]
+    data = [[Paragraph(f"<b>{k}</b>", st["label"]), Paragraph(str(v), st["small"])]
             for k, v in rows]
     t = Table(data, colWidths=widths)
     t.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LINEBELOW", (0, 0), (-1, -2), 0.25, colors.HexColor("#dddddd")),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.4, LINE),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
+    return t
+
+
+def _table(data, col_widths, zebra=True):
+    """Shared styling for the multi-row tables (findings, evidence): a tinted header
+    row and light zebra striping so a long table stays readable at a glance rather than
+    turning into a wall of undifferentiated grid lines."""
+    t = Table(data, colWidths=col_widths)
+    style = [
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BACKGROUND", (0, 0), (-1, 0), PANEL),
+        ("GRID", (0, 0), (-1, -1), 0.4, LINE),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5),
+    ]
+    if zebra and len(data) > 2:
+        style.append(("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, ZEBRA]))
+    t.setStyle(TableStyle(style))
     return t
 
 
@@ -219,9 +242,6 @@ def _summary(job, results):
             "model score. ")
     body += (f"The artifacts present are consistent with: {', '.join(tags)}. "
              if tags else "No indicator categories matched. ")
-    if job.ood_count:
-        body += (f"The model's own verdict is reported for reference only: {job.ood_count} "
-                 "of its 55 inputs fall outside the range it was trained on.")
     return worst, body
 
 
@@ -259,6 +279,7 @@ def render(job, compress=True, generated_by=None):
         f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} by {generated_by}",
         st["sub"]))
 
+    _rule(flow)
     flow.append(Paragraph("1. Chain of custody", st["h"]))
     custody = [
         ("Artifact", job.filename),
@@ -281,33 +302,29 @@ def render(job, compress=True, generated_by=None):
     flow.append(_kv(custody, st))
 
     # 2. Executive summary
-    flow.append(HRFlowable(width="100%", thickness=0.5, spaceBefore=10, spaceAfter=2,
-                           color=colors.HexColor("#dddddd")))
+    _rule(flow)
     severity, summary = _summary(job, results)
     flow.append(Paragraph("2. Executive summary", st["h"]))
     # Never fall back to Low. An absent severity means it could not be computed,
     # and defaulting to the reassuring end of the scale is the wrong direction to
     # fail in - it reads as "nothing to worry about" on a report that in fact
-    # scored nothing at all.
-    flow.append(Paragraph(f"<b>Overall severity: {severity or 'not scored'}</b>", st["p"]))
+    # scored nothing at all. Colour follows the same severity scale as the web
+    # dashboard (SEVERITY_HEX above), so the two surfaces read as one system.
+    flow.append(Paragraph(
+        f"<font color='{_sev_hex(severity)}'><b>Overall severity: "
+        f"{severity or 'not scored'}</b></font>", st["p"]))
     flow.append(Paragraph(summary, st["p"]))
 
     # 3. Verdict detail
-    flow.append(HRFlowable(width="100%", thickness=0.5, spaceBefore=10, spaceAfter=2,
-                           color=colors.HexColor("#dddddd")))
+    _rule(flow)
     flow.append(Paragraph("3. Verdict detail", st["h"]))
     if job.artifact == MEMORY and results:
         r = results[0]
-        flow.append(Paragraph(
-            "For memory captures the model score is a secondary triage signal, not the "
-            "headline. It is shown here with the applicability check that governs it.",
-            st["p"]))
         flow.append(_kv([
             ("Model", "XGBoost, 55 features, memory pipeline"),
             ("Probability", f"{r.probability:.4f}"),
             ("Operating threshold", f"{r.threshold:.10f}"),
             ("Raw verdict", "malicious" if r.malicious else "benign"),
-            ("Features out of training range", f"{job.ood_count} of 55"),
             ("Severity basis", r.severity_note or "n/a"),
         ], st))
     else:
@@ -321,15 +338,15 @@ def render(job, compress=True, generated_by=None):
         ], st))
 
     # 4/5. Findings, per file for disk
-    flow.append(HRFlowable(width="100%", thickness=0.5, spaceBefore=10, spaceAfter=2,
-                           color=colors.HexColor("#dddddd")))
+    _rule(flow)
     flow.append(Paragraph("4. Findings", st["h"]))
     if not results:
         flow.append(Paragraph("No results were recorded for this job.", st["p"]))
     for r in results:
         block = [Paragraph(
-            f"<b>{r.severity or 'Unrated'}</b> &middot; probability "
-            f"{r.probability:.4f} &middot; {r.path or 'whole memory dump'}", st["h3"])]
+            f"<font color='{_sev_hex(r.severity)}'><b>{r.severity or 'Unrated'}</b></font>"
+            f" &middot; probability {r.probability:.4f} &middot; "
+            f"{r.path or 'whole memory dump'}", st["h3"])]
         if r.severity_note:
             block.append(Paragraph(r.severity_note, st["small"]))
         if r.file_sha256:
@@ -357,35 +374,18 @@ def render(job, compress=True, generated_by=None):
                               + (f" ({f.confidence})" if f.confidence else ""),
                               st["small"]),
                     Paragraph(f.mitre_id or "—", st["small"])])
-            t = Table(data, colWidths=(96 * mm, 44 * mm, 20 * mm))
-            t.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f0f0")),
-                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#dddddd")),
-                ("TOPPADDING", (0, 0), (-1, -1), 3),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-            ]))
             block.append(Spacer(1, 3))
-            block.append(t)
+            block.append(_table(data, (96 * mm, 44 * mm, 20 * mm)))
         flow.append(KeepTogether(block))
         flow.append(Spacer(1, 6))
 
-    # Configuration counts, kept visually apart from the findings above so it is
-    # never read as an indicator. It cannot reach severity by construction.
-    volumetric = (job.volumetric or {}) if job.artifact == MEMORY else {}
-    if volumetric.get("note"):
-        flow.append(Paragraph("Configuration context", st["h3"]))
-        flow.append(Paragraph(volumetric["note"], st["small"]))
-        flow.append(Spacer(1, 6))
-
     # Section 5 is per-process evidence, but only for a memory job that has any -
-    # so Scope and Appendix renumber accordingly rather than colliding on "5".
+    # so Scope and limitations renumbers to 6 rather than colliding on "5".
     sections = evidence_rows(job) if job.artifact == MEMORY else []
     scope_no = 6 if sections else 5
 
     if sections:
-        flow.append(HRFlowable(width="100%", thickness=0.5, spaceBefore=10, spaceAfter=2,
-                               color=colors.HexColor("#dddddd")))
+        _rule(flow)
         flow.append(Paragraph("5. Where these indicators were observed", st["h"]))
         flow.append(Paragraph(
             "These are the processes, addresses and modules behind the indicators "
@@ -404,15 +404,7 @@ def render(job, compress=True, generated_by=None):
             # has no PID/parent at all, so stays at four) - split the usable page
             # width evenly per section rather than a single hardcoded tuple.
             col_w = (160 * mm) / len(columns)
-            t = Table(data, colWidths=[col_w] * len(columns))
-            t.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f0f0")),
-                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#dddddd")),
-                ("TOPPADDING", (0, 0), (-1, -1), 2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-            ]))
-            flow.append(t)
+            flow.append(_table(data, [col_w] * len(columns)))
             flow.append(Spacer(1, 6))
 
     # Scope and limitations - mandatory, always rendered.
@@ -423,19 +415,6 @@ def render(job, compress=True, generated_by=None):
         for text in paragraphs:
             flow.append(Paragraph(text, st["small"]))
             flow.append(Spacer(1, 2))
-
-    flow.append(HRFlowable(width="100%", thickness=0.5, spaceBefore=10, spaceAfter=2,
-                           color=colors.HexColor("#dddddd")))
-    flow.append(Paragraph(f"{scope_no + 1}. Appendix", st["h"]))
-    if job.artifact == MEMORY and job.ood_fields:
-        flow.append(Paragraph("Features outside the training range", st["h3"]))
-        flow.append(Paragraph(", ".join(job.ood_fields), st["mono"]))
-        flow.append(Spacer(1, 4))
-    if baseline.info():
-        flow.append(Paragraph("Clean-system baseline", st["h3"]))
-        info = baseline.info()
-        flow.append(_kv([(k.replace("_", " ").capitalize(), v)
-                         for k, v in info.items() if not isinstance(v, dict)], st))
 
     doc.build(flow, canvasmaker=_canvas_maker(job.sha256))
     return buf.getvalue()
@@ -470,9 +449,12 @@ class _NumberedCanvas(Canvas):
 
     def _draw_footer(self, total):
         self.saveState()
-        self.setFont("Helvetica", 7)
-        self.setFillColor(colors.HexColor("#888888"))
         width, _height = A4
+        self.setStrokeColor(RULE)
+        self.setLineWidth(0.5)
+        self.line(25 * mm, 16 * mm, width - 25 * mm, 16 * mm)
+        self.setFont("Helvetica", 7)
+        self.setFillColor(INK_SOFT)
         self.drawString(25 * mm, 12 * mm, f"SHA-256 {self._footer_sha256}")
         self.drawRightString(width - 25 * mm, 12 * mm,
                              f"Page {self._pageNumber} of {total}")

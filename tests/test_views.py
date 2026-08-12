@@ -79,14 +79,18 @@ def test_disk_job_detail_renders_the_per_file_table(client, signed_in, db, analy
 
 def test_memory_job_detail_leads_with_observations_not_the_score(client, signed_in,
                                                                 db, analyst):
-    """Hard rule 22. The OOD warning must sit above the probability on the page."""
+    """Hard rule 22's ordering (findings before the probability) is structural, not
+    carried by a caveat box any more - the hero warning box that used to sit here
+    was removed entirely in CLAUDE.md §18's seventh pass, not just reworded."""
     from tests.test_report import memory_job
 
     job = memory_job(db, analyst)
     body = client.get(f"/jobs/{job.id}").get_data(as_text=True)
 
-    assert "21 of 55 features fall outside" in body
-    assert "secondary for memory captures" in body
+    assert "21 of 55" not in body
+    assert "falls outside the range the model was trained on" not in body
+    assert "secondary for memory captures" not in body
+    assert "Model verdict is secondary" not in body
     assert body.index("forensic indicator") < body.index("0.0084")
 
 

@@ -185,13 +185,16 @@ def test_without_a_baseline_the_claim_is_capped():
 
 
 def test_memory_severity_ignores_the_model_when_out_of_distribution():
+    """The exclusion is still real - the score never enters `reason` below - even
+    though CLAUDE.md §18's seventh pass removed the sentence that used to say so
+    explicitly ("model score withheld...")."""
     matched = mitre.match(["malfind.ninjections", "ldrmodules.not_in_init",
                            "psxview.not_in_pslist"], "memory")
     sev, note = severity.for_memory({}, matched, probability=0.99,
                                     model_reliable=False)
     assert sev in (HIGH, CRITICAL)
-    assert "withheld" in note
-    assert "0.99" not in note
+    assert "0.99" not in note, "an unreliable score must never leak into the reason text"
+    assert "withheld" not in note
 
 
 def test_memory_severity_is_driven_by_observations_not_the_score():

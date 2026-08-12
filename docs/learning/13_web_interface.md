@@ -327,10 +327,9 @@ specifically, the OOD note appear:
   {% if job.ood_count is not none %}
   <div class="fx-note fx-note-warn">
     <strong>Model verdict is secondary for memory captures.</strong>
-    {{ job.ood_count }} of 55 features fall outside the range observed in the
-    training data, so the model is extrapolating and its probability
-    ({{ '%.4f'|format(results[0].probability) }}) is reported for reference only.
-    ...
+    This capture falls outside the range the model was trained on, so its
+    probability ({{ '%.4f'|format(results[0].probability) }}) is reported for
+    reference only. ...
   </div>
   {% endif %}
 {% else %}
@@ -349,7 +348,13 @@ This is the same evidence-led ordering already established in the PDF
 (file 12), independently implemented here in the HTML, because both are
 following the same underlying design rule even though this particular
 paragraph's exact wording lives in the template rather than in
-`report.py`.
+`report.py`. **As of CLAUDE.md §18's sixth pass (2026-08-11), this box no
+longer states the actual out-of-distribution number** — `job.ood_count`
+still gates whether the box appears at all (`{% if job.ood_count is not
+none %}` is unchanged, and `job.ood_count` is still sent to the client on
+every `/status` poll below), but the specific digit is no longer part of
+the warning text itself, only the qualitative "falls outside the range"
+statement.
 
 **The per-file table** (disk jobs with more than one result) is
 client-side sortable:

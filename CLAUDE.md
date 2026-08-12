@@ -1212,18 +1212,22 @@ What follows from that:
 - **The clean baseline is the same reference machine's known-good state.** Comparing a
   machine against its own baseline is the design, not a workaround. Cross-machine
   comparison is misuse and this scope forbids it.
-- **Every memory report must carry the scope statement**, and it belongs in the mandatory
-  limitation set so the build fails if it goes missing:
+- **The scope itself is architectural, not a sentence in a report.** The wording this
+  project used to print verbatim in every memory report read:
 
   > Demonstrated on a controlled reference environment (Windows 10 x64). Severity is
   > calibrated against a per-machine clean baseline and is valid for that machine.
   > Cross-machine deployment would require a per-machine baseline established in advance.
 
-  *Enforced.* `report.SCOPE_STATEMENT` carries the wording, `report.limitations()`
-  emits it for memory jobs under the heading "Reference environment and scope", and
-  `report.REQUIRED_MEMORY` asserts `"controlled reference environment"` and
-  `"per-machine clean baseline"` — two paren-free fragments, because the PDF stream
-  escapes parentheses and `verify_pipeline.py` matches raw bytes.
+  **As of CLAUDE.md §18's fifth pass (2026-08-11), that paragraph is no longer rendered
+  in the PDF or the web report** — a deliberate, user-approved display decision, not a
+  weakening of the scope itself. The two bullets above it (the x64 architecture gate in
+  `build_context`, and the per-machine clean baseline design) are still fully enforced in
+  code, unchanged; only the *sentence explaining them to the reader* was removed.
+  `report.SCOPE_STATEMENT` and `report.REQUIRED_MEMORY`'s two fragments asserting it
+  (`"controlled reference environment"`, `"per-machine clean baseline"`) were deleted
+  along with it — `REQUIRED_MEMORY` is now `[]`. See §18 for the full record of what was
+  removed and why.
 
 ### 11.2 Out of scope entirely
 
@@ -1600,15 +1604,17 @@ below.
   "Environment" was removed. No test asserted the version table's presence, so nothing
   else needed updating.
 
-**What remains, pending a separate decision.** Left in place for now: the memory
-model-applicability paragraph (OOD count + `SATURATION_CAVEAT`, still required by hard
-rule 17 and `REQUIRED_MEMORY`), the §11.1 reference-environment scope statement in the
-*report* (`SCOPE_STATEMENT`, still required by hard rule 12/§11.1 and `REQUIRED_MEMORY` —
-only the Upload page's separate advisory blurb about the same architecture restriction was
-removed, not the enforced report text), the baseline note, and the "model verdict is
-secondary for memory captures" note on the job detail page plus the matching sentence in
-the PDF's verdict-detail section (both are how hard rule 22 is made visible, not incidental
-copy). Revisit these only on explicit instruction.
+**What remained pending a separate decision, at the time this paragraph was first
+written — two of the four have since been revisited, see the fifth pass below.** The
+memory model-applicability paragraph (OOD count + `SATURATION_CAVEAT`) and the §11.1
+reference-environment scope statement in the *report* (`SCOPE_STATEMENT`) were both
+removed 2026-08-11, on explicit instruction — hard rule 17 and hard rule 12/§11.1 no
+longer require that specific display text, only the underlying gate and scope
+enforcement, which are unchanged. **Still left in place, not revisited:** the baseline
+note, and the "model verdict is secondary for memory captures" note on the job detail
+page plus the matching sentence in the PDF's verdict-detail section (both are how hard
+rule 22 is made visible, not incidental copy, and neither was in scope for the fifth
+pass).
 
 **Fourth pass, 2026-08-10 — four analyst-facing additions, not a removal.** Every prior
 pass in this section trimmed disclaimer prose; this one adds real, requested content on
@@ -1742,3 +1748,275 @@ several further ideas the user did not approve building this round:
 
 None of the four require touching hard rule 22 or "Scope and limitations" to build, the
 same way this pass's four items didn't — that was true at proposal time and remains true.
+
+**Fifth pass, 2026-08-11 — three specific display strings removed, by explicit user
+decision, display-only.** Two of the four items the fourth pass left "pending a separate
+decision" (above) were revisited and removed on explicit instruction:
+
+1. **The memory "Model applicability" limitations paragraph** — the sentence stating how
+   many of the 55 features fell outside the training range, plus the SMOTE/dataset-
+   saturation caveat (`SATURATION_CAVEAT`) that used to sit right below it. Both were the
+   two paragraphs under the "Model applicability" heading in `report.limitations()`; that
+   heading no longer appears at all, for either surface, since removing both of its
+   paragraphs left nothing to render under it.
+2. **The "Reference environment and scope" limitations paragraph** — the Windows-10-x64
+   scope-statement sentence (`SCOPE_STATEMENT`). Same story: it was the section's only
+   paragraph, so the heading is gone too, not left empty.
+
+**Why:** the user will present the SMOTE finding verbally at viva, from the ICISSP 2022
+paper directly, rather than having the system state it — a deliberate choice about where
+that explanation lives, not a retraction of the finding itself (Section 2 is untouched and
+still correct).
+
+**What did NOT change, confirmed both by code review and by re-running real artifacts under
+the new code:**
+
+- **The OOD gate itself.** `memory.ood()`/`memory.dominant_ood()` (§7, hard rule 17) are
+  untouched — still compute the same count, still decide `reliable = not dominant` exactly
+  as before. Only the *explanatory sentence* about it is gone from the limitations section;
+  the bare count still ships on every memory report (now via Verdict Detail's "N of 55" row
+  and the executive summary's "N of its 55 inputs" sentence — both untouched code, both
+  already existed before this pass), so hard rule 17 is satisfied exactly as before, just
+  without the sentence that used to explain *why* the number matters.
+- **Hard rule 22's ordering.** The executive summary still leads with observations, verdict
+  detail still comes after and still carries the OOD count with it, and the job-detail hero
+  note ("Model verdict is secondary for memory captures...") is untouched — none of that was
+  in scope for this pass.
+- **Severity and the baseline comparison.** Nothing in `app/forensics/severity.py` or
+  `app/forensics/baseline.py` was touched. The "Baseline for the observed indicators"
+  limitations subsection (`baseline.NOTE`) is untouched and still renders.
+- **The architecture gate.** `build_context`'s 64-bit check and its own error message
+  (`app/extractors/memory.py`) are untouched — that's a different, unrelated occurrence of
+  similar wording (§11.1) and was never part of this change.
+
+**Verified, not assumed:**
+
+- `pytest tests -q` → **249 passed**, 0 failed, 0 skipped (same count as before this pass —
+  two existing tests were edited in place, none added or removed:
+  `test_a_memory_report_does_not_headline_the_probability` dropped its now-meaningless
+  `"Model applicability" in headings` assertion; `test_the_ood_count_appears_in_every_memory_report`
+  now asserts `"21 of 55"`, which still literally appears via Verdict Detail, instead of the
+  now-gone `"21 out of the 55 features"`).
+- `scripts/verify_pipeline.py` → **all checks passed**, fresh run: disk (2020JimmyWilson.E01)
+  27s, 3,817 files examined, 13 results, 0 flagged, 60 skipped — matches the script's own
+  pinned `EXPECTED` value exactly. Memory (win10_memory.raw) 388s, 67 processes (ground truth
+  67), OOD 21 of 55 — also matches `EXPECTED` exactly, with severity **High** and the note
+  "model score withheld from severity: capture is out of distribution" — the OOD gate
+  correctly withheld the model's own score, exactly as designed. Every exercised route
+  (`/jobs/N`, `/status`, `/export.csv`, `/export.json`, `/report.pdf`) returned 200.
+- **The real malicious capture, re-verified against its own already-stored result** (job 3,
+  `sample/memory/malicious_1.raw`, unchanged since 2026-08-04 — this pass touched no
+  extraction, inference, or severity code, so its stored result was never at risk, and
+  re-rendering it is what actually exercises the changed code): re-rendered under the new
+  `report.py`, both as a PDF and as the live `/jobs/3` web page (HTTP 200 on both). Severity
+  **Critical**, unchanged. `T1055` and `T1014` still present. OOD count **27 of 55** still
+  shown, now only via Verdict Detail/the executive summary/the hero note. The three removed
+  strings ("unusually high separability", "SMOTE", "controlled reference environment",
+  "per-machine clean baseline", the "Model applicability" and "Reference environment and
+  scope" headings) were all confirmed absent from both the re-rendered PDF and the re-rendered
+  web page; every string this section says should still be there was confirmed present in
+  both.
+- The two existing disk jobs in the live database (5, 6) were also re-rendered under the new
+  code as a quick disk-side sanity check — `REQUIRED_DISK` was already `[]` before this pass
+  and is unaffected, both rendered cleanly.
+
+**What's genuinely unresolved, left as a known gap, not silently dropped:**
+`docs/learning/12_reporting.md` and `docs/learning/99_glue_it_together.md` both quote and
+explain the now-deleted `SATURATION_CAVEAT`/`SCOPE_STATEMENT` code at length. Out of scope
+for this pass (only `CLAUDE.md` and `STATUS.md` were asked for); flagged to the user, not
+fixed. Revisit only if asked.
+
+**Sixth pass, 2026-08-11 (same day) — the raw OOD number removed from every remaining
+display, the out-of-range Appendix list removed, and the report given a real visual
+design pass.** Explicit follow-up instruction from the user, same discipline as the
+fifth pass: locate exact text first, confirm, then remove, then verify against real
+artifacts. Display-only again — confirmed both by code review and by re-running real
+artifacts under the new code, same as every pass in this section.
+
+**What was removed, all four items confirmed with the user before touching anything:**
+
+1. The executive summary's memory-only sentence used to read *"...N of its 55 inputs
+   fall outside the range it was trained on."* — now *"...this capture falls outside the
+   range it was trained on."* The digit is gone; the qualitative disclosure survives.
+2. Verdict Detail's memory-only table used to carry a `"Features out of training range"`
+   → `"N of 55"` row. Deleted outright — there is no sensible non-numeric version of a
+   table row whose entire content was a number, unlike item 1's free-standing sentence.
+3. The job-detail hero warning box (`job_detail.html`) used to read *"N of 55 features
+   fall outside the range observed in the training data, so the model is
+   extrapolating..."* — now *"This capture falls outside the range the model was trained
+   on, so..."*. Same reasoning as item 1: the number goes, the warning stays.
+4. The PDF Appendix's **"Features outside the training range"** subsection — the literal,
+   comma-joined list of out-of-range feature *names* (`job.ood_fields`), in monospace —
+   deleted entirely. This was a second, more granular way of displaying the same
+   out-of-distribution information (individual feature names rather than a count); the
+   Appendix heading itself and the "Clean-system baseline" subsection under it are
+   untouched, since removing this one `if` block left everything else in the Appendix
+   exactly as it was.
+
+**What did NOT change, confirmed the same way as the fifth pass:** `memory.ood()` and
+`dominant_ood()` (§7, hard rule 17) are untouched — still compute the same count, still
+decide `reliable = not dominant` exactly as before. `job.ood_count` is still stored on
+every memory job and still gates whether the "for reference only" sentence appears at
+all (`if job.ood_count:` in `_summary()` is unchanged) — only the digit inside that
+sentence is gone. Severity, `app/forensics/severity.py`, `app/forensics/baseline.py`,
+and hard rule 22's evidence-before-verdict ordering are all untouched.
+
+**The visual design pass, Step 3 of this instruction — styling only, no content
+reordering beyond the four removals above.** `app/report.py` previously used
+ReportLab's own default sample stylesheet plus a handful of independently-chosen grey
+hex codes (`#dddddd`, `#666666`, `#f0f0f0`, `#444444`, `#888888` — five different greys
+with no shared reasoning). It now draws from one named palette (`INK`, `INK_SOFT`,
+`ACCENT`, `RULE`, `PANEL`, `LINE`, `ZEBRA`, plus a `SEVERITY_HEX` map) — the severity
+colours deliberately sit in the same hue family as `app/static/app.css`'s own
+`--fx-critical`/`high`/`medium`/`low` scale, deepened for legibility on white paper
+rather than the dashboard's dark background, so the PDF and the web dashboard read as
+one system rather than two unrelated colour languages for the same concept. Concretely:
+a larger, bolder title; coloured, clearly-ranked section headings (`_rule()` — one
+helper now used before every numbered section, including "1. Chain of custody," which
+previously had no divider at all, for full consistency); severity-coloured text
+wherever a severity is stated (the executive summary's headline line, and each
+per-result finding block in section 4); a shared `_table()` helper replacing three
+near-identical inline `Table`/`TableStyle` blocks, adding light zebra striping on any
+table with more than one data row; a de-emphasised label column in `_kv()`'s key/value
+tables (`INK_SOFT` vs. `INK`); and a thin rule above the page footer. The now-unused
+`"mono"` paragraph style (it existed only for the deleted Appendix block) was removed
+along with it.
+
+**Verified, not assumed, same standard as every pass in this section:**
+
+- `pytest tests -q` → **249 passed**, 0 failed, 0 skipped — identical count to before
+  this pass. Two tests were rewritten in place to assert the number's *absence* rather
+  than its presence: `test_the_ood_count_appears_in_every_memory_report` (renamed
+  `test_the_ood_count_is_computed_but_no_longer_displayed`) now asserts both that
+  `job.ood_count == 21` (the gate still computed it) and that neither `"21 of 55"` nor
+  the bare substring `"of 55"` appears anywhere in the rendered PDF; `test_views.py`'s
+  `test_memory_job_detail_leads_with_observations_not_the_score` now asserts `"21 of 55"`
+  is absent from the web page and that the reworded sentence is present instead.
+- `scripts/verify_pipeline.py` → **all checks passed**, fresh run, post-styling:
+  disk (`2020JimmyWilson.E01`) 11s, 3,817 files examined, 13 results, 0 flagged, 60
+  skipped — matches `EXPECTED` exactly. Memory (`win10_memory.raw`) 165s, 67 processes
+  (ground truth 67), OOD 21 of 55 — also matches `EXPECTED` exactly, severity **High**,
+  "model score withheld from severity: capture is out of distribution" printed
+  correctly. Both runs' PDF sizes grew slightly relative to the pre-styling fifth-pass
+  numbers (disk 11,561→13,265 bytes, memory 14,973→16,455 bytes) — expected, from the
+  added rules/colour markup, not a content regression; each report still checks exactly
+  **1** mandatory string (`REQUIRED_ALWAYS`'s `"Scope and limitations"`, since both
+  `REQUIRED_DISK` and `REQUIRED_MEMORY` are `[]`). Every exercised route returned 200.
+- **The real malicious capture, re-verified against its own stored result** (job 3,
+  `sample/memory/malicious_1.raw`, unchanged since 2026-08-04): re-rendered under the
+  new code as both a PDF and the live `/jobs/3` web page (HTTP 200 both). Severity
+  **Critical**, unchanged. `T1055` and `T1014` still present. Confirmed by direct string
+  search: `"27 of 55"`, `"of 55"`, `"Features out of training range"`, and `"Features
+  outside the training range"` are all absent from both the re-rendered PDF and the
+  re-rendered web page; `"Critical"`, `"T1055"`, `"T1014"`, `"Scope and limitations"`,
+  `"Baseline for the observed indicators"`, `"model score withheld from severity"`, the
+  reworded `"falls outside the range it was trained on"` / `"falls outside the range the
+  model was trained on"` sentences, and the Appendix's `"Clean-system baseline"`
+  subsection are all still present in both.
+
+**The two curriculum files flagged as a known gap after the fifth pass are fixed, as
+asked.** `docs/learning/12_reporting.md` was substantially rewritten to match the
+current `report.py` exactly, including the new palette/`_rule()`/`_table()` system and
+its own reasoning for why each helper exists; `docs/learning/99_glue_it_together.md`'s
+Parts 9 and 10 were corrected to describe the current, six-item-lighter report rather
+than the version that used to print five mandatory memory substrings.
+
+**Seventh pass, 2026-08-11 (same day) — a second, explicit follow-up sweep: every
+remaining piece of caveat/limitation/unreliability text for the memory pipeline
+removed from display, and the Appendix section deleted outright for both pipelines.**
+The sixth pass reworded the job-detail hero box and the Verdict Detail intro sentence
+to drop the raw OOD *number* while deliberately keeping the qualitative warning text
+("secondary," "falls outside the range," "reported for reference only," "does not
+depend on it"). This pass removes that warning text too, on explicit instruction, plus
+several sections the first two passes never touched at all because they were out of
+their stated scope. A full re-grep of `app/report.py` and every template (not a
+targeted re-check of prior findings) turned up caveat language the earlier passes had
+genuinely missed — recorded here in full because that's exactly the kind of gap this
+section exists to make visible rather than bury.
+
+**What was removed, all confirmed with the user before touching anything:**
+
+1. **The job-detail hero warning box**, `app/templates/job_detail.html` — the entire
+   `<div class="fx-note fx-note-warn">…</div>` block (the sixth pass had reworded its
+   text, not removed the box). The `{% if job.ood_count is not none %}` guard around it
+   was removed along with it, since nothing is left to guard.
+2. **The Verdict Detail intro sentence**, `report.py` — *"For memory captures the model
+   score is a secondary triage signal, not the headline. It is shown here with the
+   applicability check that governs it."* Deleted; the `_kv()` table beneath it (Model,
+   Probability, Operating threshold, Raw verdict, Severity basis) is unchanged.
+3. **The "Extraction gaps" limitations section** — the two paragraphs distinguishing
+   missing vs. inferred features, and the section heading itself. `job.extraction_gaps`
+   is still populated by `app/extractors/memory.py` on every real run; `limitations()`
+   just no longer surfaces it.
+4. **The "Baseline for the observed indicators" limitations section** — `baseline.NOTE`
+   is untouched as a constant; `limitations()` no longer appends it.
+5. **The "Configuration context" box** — both surfaces (`report.py`'s PDF block and
+   `job_detail.html`'s `{% if job.volumetric and job.volumetric.note %}` block).
+   `baseline.volumetric_context()` (the function that computes the note) is completely
+   untouched — `job.volumetric["note"]` is still computed and stored on every real
+   memory job exactly as before.
+6. **The entire Appendix section, both pipelines** — not just the out-of-range feature
+   list the sixth pass already removed. The "Clean-system baseline" subsection
+   (`baseline.info()`) that survived the sixth pass is now gone too, and the `N+1.
+   Appendix` heading with it. "Scope and limitations" is now the last section in every
+   report; section numbering (`scope_no`) is unchanged since it's still needed for
+   "Scope and limitations"' own number.
+7. **The "model score withheld from severity: capture is out of distribution" clause**
+   inside `severity_note` — `app/forensics/severity.py:for_memory()`. This one lives
+   outside `report.py`/templates entirely, flagged explicitly before touching it since
+   it required editing the function that actually computes severity. The fix is
+   surgical: the `elif not model_reliable: reason.append(...)` branch that added the
+   sentence was merged into the adjacent `if probability is None:` no-op branch, so
+   nothing is appended for the unreliable case any more. **`level` (the actual severity
+   bucket) was never touched by that branch in the first place** — the exclusion of an
+   unreliable score from severity is computed earlier and separately; only the sentence
+   *explaining* the exclusion was in that branch.
+
+**What did NOT change, verified three separate ways:**
+
+- `pytest tests -q` → **249 passed**, 0 failed, 0 skipped — identical count to every
+  prior pass in this section. Every affected test was rewritten to assert *absence*
+  rather than deleted outright, matching this project's standing practice of never
+  quietly dropping coverage: `test_memory_severity_ignores_the_model_when_out_of_distribution`
+  (`tests/test_forensics.py`) now asserts `"withheld" not in note` alongside the
+  pre-existing `"0.99" not in note`; `test_the_note_is_stored_but_no_longer_displayed`
+  (`tests/test_volumetric.py`, renamed from `test_the_note_reaches_the_pdf_and_the_page`)
+  asserts `job.volumetric["note"]` is still computed and equal to the expected string,
+  while confirming that same string no longer appears in either rendered surface;
+  `test_extraction_gaps_are_stored_but_no_longer_displayed` (`tests/test_report.py`,
+  renamed from `test_memory_limitations_split_missing_from_inferred`) asserts
+  `job.extraction_gaps` is still populated while `limitations()` no longer exposes it.
+- `scripts/verify_pipeline.py` → **all checks passed**, fresh run: disk
+  (`2020JimmyWilson.E01`) 11s/3,817 files/13 results/0 flagged/60 skipped, memory
+  (`win10_memory.raw`) 173s/67 processes (ground truth 67)/OOD 21 of 55 — both matching
+  `EXPECTED` exactly. Severity **High**, unchanged from every prior run of this
+  artifact. Its printed `severity_note` — **freshly computed under the new
+  `severity.py`, not stored from an earlier run** — reads *"1 high-risk indicator
+  category elevated against the clean-system baseline; 2 indicators elevated against
+  baseline"*, with no "withheld" clause, confirming item 7 works for real, newly-run
+  jobs, not just in a unit test.
+- **The real malicious capture, re-verified against its own stored result** (job 3,
+  `sample/memory/malicious_1.raw`): re-rendered under the new code as both a PDF and
+  the live `/jobs/3` web page (HTTP 200 both). Severity **Critical**, unchanged. `T1055`
+  and `T1014` still present. Direct string search confirmed every phrase from items 1–6
+  above genuinely absent from both renders — **with one honest exception, not papered
+  over**: job 3's own `Result.severity_note`, computed and persisted back on
+  2026-08-04, still literally contains the words *"model score withheld from severity"*
+  in both the PDF and the hero paragraph on the web page, because `severity_note` is
+  **stored**, not recomputed at render time — item 7's fix only changes what *new*
+  computations produce (proven above via `verify_pipeline.py`'s fresh run and via
+  `test_forensics.py`), and this project's own retention discipline (§10, "uploaded
+  artifacts are retained indefinitely… there is no purge mechanism") argues against
+  silently rewriting a historical result's stored text to match. Flagged to the user
+  rather than resolved unilaterally; recomputing and overwriting job 3's stored
+  `severity_note` is a data-mutation decision, not a display decision, and needs
+  explicit sign-off the way every other change in this section got it.
+
+**Confirmed explicitly, as required:** only displayed text changed. `memory.ood()` and
+`dominant_ood()` are untouched; `job.ood_count`, `job.extraction_gaps`, and
+`job.volumetric` are all still computed and stored exactly as before; `severity.for_memory()`'s
+`level` computation and capping logic are byte-for-byte unchanged — only one
+`reason.append(...)` call was removed, and it never touched `level`. Hard rule 22's
+evidence-before-verdict ordering is now carried structurally (findings render before
+the probability in both surfaces) rather than by a sentence saying so, which is a
+stronger, not weaker, form of the same guarantee.
